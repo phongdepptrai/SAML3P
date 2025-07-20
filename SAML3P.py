@@ -7,22 +7,20 @@ import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-import test
-
 # input variables in database ?? mertens 1
-n = 28
-m = 3
-c = 342
+n = 35
+m = 14
+c = 40
 val = 0
 cons = 0
 sol = 0
 solbb = 0
-type = 2
+type = 1
 #           0              1                2           3           4           5           6           7               8                   9
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
         "JACKSON.IN2","GUNTHER.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[5]
+filename = file[10]
 
 fileName = filename.split(".")
 
@@ -44,7 +42,7 @@ adj = []
 
 def input():
     cnt = 0
-    for line in fileinput.input(filename):
+    for line in fileinput.input('presedent_graph/'+filename):
         line = line.strip()
         if line:
             if cnt == 0:
@@ -442,12 +440,12 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
                 solver.add_clause([-A[j-1][t] for j in stations])
                 # print(stations)
 
-
+start_time = time.time()
 X, S, A = generate_variables(n,m,c)
 input()
 val = max(A)
 # print(val)
-start_time = time.time()
+
 sol = 0
 solbb = 0
 solution, sol, solbb, solval = optimal(X,S,A,n,m,c,sol,solbb,start_time) #type: ignore
