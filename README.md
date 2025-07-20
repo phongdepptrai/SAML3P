@@ -15,6 +15,8 @@ SAML3P is a sophisticated SAT (Boolean Satisfiability) based solver for the Simp
 
 ### Advanced Features
 - **Staircase Constraints**: Implements sophisticated constraint reduction techniques
+- **Pseudo-Boolean Constraints**: Direct optimization using weighted constraints (pb_staircase4)
+- **Threading Support**: Robust timeout handling with multi-threaded solver execution
 - **Preprocessing**: Reduces problem complexity through early/late start time analysis
 - **Branch and Bound**: Iterative optimization to find minimal solutions
 - **HTML Visualization**: Generates interactive Gantt charts for solution analysis
@@ -26,6 +28,7 @@ SAML3P is a sophisticated SAT (Boolean Satisfiability) based solver for the Simp
 SAML3P/
 ├── SAML3P.py              # Main solver implementation
 ├── staircase4.py          # Enhanced version with staircase constraints
+├── pb_staircase4          # Pseudo-Boolean enhanced solver with threading
 ├── presedent_graph/       # Task precedence graph files (.IN2 format)
 │   ├── BOWMAN.IN2
 │   ├── BUXEY.IN2
@@ -41,6 +44,30 @@ SAML3P/
 └── README.md           # This documentation
 ```
 
+## Solver Variants
+
+The project includes three different solver implementations, each with increasing sophistication:
+
+### 1. SAML3P.py (Base Implementation)
+- Classic SAT-based approach using Boolean variables only
+- Standard constraint generation and solving
+- Basic timeout mechanism
+- Suitable for smaller to medium-sized instances
+
+### 2. staircase4.py (Enhanced Constraints)
+- Implements staircase constraints for improved efficiency
+- Auxiliary variables for better precedence handling
+- Enhanced preprocessing techniques
+- Better performance on complex precedence structures
+
+### 3. pb_staircase4 (Pseudo-Boolean Advanced)
+- **Most Advanced Version** - Recommended for large instances
+- Direct pseudo-Boolean constraint encoding using PySAT's PBEnc
+- Multi-threaded solver execution with robust timeout handling
+- Weighted constraint optimization: ∑(wᵢ × Aᵢ,ₜ) ≤ bound
+- Enhanced memory management and variable tracking
+- Superior scalability for complex industrial instances
+
 ## Algorithm Description
 
 ### Problem Formulation
@@ -53,16 +80,55 @@ The solver addresses the following optimization problem:
   - No resource conflicts at any time slot
 
 ### Variables
+
+The solver uses different variable encoding schemes depending on the implementation:
+
+#### Base Variables (All Implementations)
 - **X[j][k]**: Boolean variable indicating if task j is assigned to workstation k
-- **S[j][t]**: Boolean variable indicating if task j starts at time t
 - **A[j][t]**: Boolean variable indicating if task j is active at time t
 
+#### SAML3P.py Variables
+- **S[j][t]**: Boolean variable indicating if task j starts at time t
+- Variable indexing: X uses `j*m+k+1`, A uses `m*n + j*c + t + 1`, S uses `m*n + c*n + j*c + t + 1`
+
+#### staircase4.py Variables
+- **S[j][t]**: Boolean variable indicating if task j starts at time t (variable length per task)
+- **R[j][k]**: Auxiliary staircase variables for precedence constraints
+- Variable indexing: Optimized S arrays with `c - time_list[j] + 1` variables per task
+- Auxiliary variables managed through `var_map` dictionary
+
+#### pb_staircase4 Variables
+- **S[j][t]**: Boolean variable indicating if task j starts at time t (optimized indexing)
+- **T[j][t]**: Auxiliary temporal variables for staircase constraints
+- Enhanced variable management with dynamic counter tracking
+- Pseudo-Boolean encoding creates additional auxiliary variables automatically
+
 ### Constraint Types
+
+The implementations use different constraint formulations:
+
+#### Common Constraints (All Versions)
 1. **Assignment Constraints**: Each task assigned to exactly one workstation
 2. **Precedence Constraints**: Task dependencies must be respected
 3. **Timing Constraints**: Tasks must start and complete within valid time windows
 4. **Resource Constraints**: No conflicts between tasks on same workstation
-5. **Staircase Constraints**: Advanced precedence handling for improved efficiency
+
+#### SAML3P.py Specific Constraints
+- Standard Boolean clauses for all constraints
+- Direct encoding of timing relationships
+- Basic precedence handling with O(n²m²t²) complexity
+
+#### staircase4.py Enhanced Constraints
+5. **Staircase Constraints**: Advanced precedence handling using auxiliary R variables
+   - R[j][k] → R[j][k+1] (monotonicity)
+   - X[j][k] ↔ (R[j][k] ∧ ¬R[j][k-1]) (assignment encoding)
+   - Reduced complexity for precedence constraints
+
+#### pb_staircase4 Pseudo-Boolean Constraints
+6. **Weighted Objective Constraints**: Direct pseudo-Boolean encoding
+   - ∑(wᵢ × A[i][t]) ≤ bound for all time slots t
+   - Automatic auxiliary variable generation by PBEnc
+   - More efficient than clause-based objective handling
 
 ## Usage
 
@@ -73,6 +139,9 @@ python SAML3P.py
 
 # Run enhanced staircase version
 python staircase4.py
+
+# Run pseudo-Boolean enhanced version with threading
+python pb_staircase4
 ```
 
 ### Configuration
@@ -103,7 +172,10 @@ Modify the following parameters in the Python files:
 - `task_assignment.html`: Interactive Gantt chart visualization
 
 ### Performance Metrics
-- **Variables**: Total number of Boolean variables
+- **Variables**: Total number of Boolean variables (varies by implementation)
+  - SAML3P.py: n×m + 2×n×c variables
+  - staircase4.py: n×m + n×c + Σ(c - time_list[j] + 1) + auxiliary R variables
+  - pb_staircase4: Optimized variable count + PBEnc auxiliary variables
 - **Constraints**: Total SAT clauses generated
 - **Solutions**: Number of feasible solutions found
 - **Best Solutions**: Solutions improving the objective
@@ -130,6 +202,14 @@ The `staircase4.py` version implements advanced precedence handling:
 - Improved precedence constraint encoding
 - Enhanced preprocessing for better performance
 
+### Pseudo-Boolean Enhancement
+The `pb_staircase4` version provides the most advanced implementation:
+- **Direct Optimization**: Uses PySAT's PBEnc for weighted constraint encoding
+- **Threading Support**: Robust timeout handling with multi-threaded execution
+- **Improved Performance**: More efficient handling of objective function constraints
+- **Better Scalability**: Handles larger instances with enhanced memory management
+- **Weighted Constraints**: Direct encoding of ∑(wᵢ × Aᵢ,ₜ) ≤ bound constraints
+
 ## Benchmark Datasets
 
 The project includes standard SALBP benchmark instances:
@@ -145,20 +225,25 @@ Each dataset includes:
 ## Dependencies
 
 ```python
-pip install python-sat tabulate
+pip install python-sat tabulate numpy
 ```
 
 Required Python packages:
-- `python-sat`: SAT solver interface
+- `python-sat`: SAT solver interface with pseudo-Boolean constraint support
 - `tabulate`: Table formatting
-- `math`, `time`, `sys`: Standard library modules
+- `numpy`: Numerical computing (for pb_staircase4)
+- `math`, `time`, `sys`, `threading`: Standard library modules
 
 ## Performance Notes
 
 - **Scalability**: Handles instances up to 60+ tasks with 25+ workstations
-- **Timeout**: 1-hour execution limit prevents excessive runtimes
+- **Timeout**: 1-hour execution limit with robust threading (pb_staircase4)
 - **Memory**: Efficient constraint generation minimizes memory usage
 - **Preprocessing**: Significantly reduces problem complexity
+- **Solver Performance**: 
+  - `SAML3P.py`: Best for instances < 30 tasks
+  - `staircase4.py`: Optimal for 30-50 tasks with complex precedence
+  - `pb_staircase4`: Recommended for 50+ tasks and industrial applications
 
 ## Contributing
 
