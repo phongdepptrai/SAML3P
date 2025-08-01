@@ -2,27 +2,27 @@ from math import inf
 import re
 import time
 from tracemalloc import start
-from pysat.solvers import Glucose4
+from pysat.solvers import Glucose3
 import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-
+import test
 
 # input variables in database ?? mertens 1
-n = 25
-m = 6
-c = 25
+n = 29
+m = 7
+c = 47
 val = 0
 cons = 0
 sol = 0
 solbb = 0
-type = 1
+type = 2
 #           0              1                2           3           4           5           6           7               8                   9
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
-        "JACKSON.IN2","GUNTHER.IN2", "WARNECKE.IN2"]
+        "JACKSON.IN2","GUNTHER.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[3]
+filename = file[4]
 
 fileName = filename.split(".")
 
@@ -45,7 +45,7 @@ forward = [0 for i in range(n)]
 
 def input():
     cnt = 0
-    for line in fileinput.input('presedent_graph/'+filename):
+    for line in fileinput.input(filename):
         line = line.strip()
         if line:
             if cnt == 0:
@@ -55,13 +55,13 @@ def input():
             else:
                 line = line.split(",")
                 if(line[0] != "-1" and line[1] != "-1"):
+                    forward[int(line[1])-1] = 1
                     adj.append([int(line[0])-1, int(line[1])-1])
                     neighbors[int(line[0])-1][int(line[1])-1] = 1
                     reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
                 else:
                     break
             cnt = cnt + 1
-
 
 def generate_variables(n,m,c):
     x = [[j*m+i+1 for i in range (m)] for j in range(n)]
@@ -328,7 +328,7 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2):
             for t in range (left_bound + 1, right_bound):
                 t_i = t - time_list[i]+1
                 clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
+            for t in range (right_bound - time_list[i] + 1, c - time_list[i] + 1):
                 clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
     # for i, j in adj:
     #     for k in range(m):
@@ -508,7 +508,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
 
     clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2)
 
-    solver = Glucose4()
+    solver = Glucose3()
     for clause in clauses:
         solver.add_clause(clause)
 

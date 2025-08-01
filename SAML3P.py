@@ -2,7 +2,7 @@ from math import inf
 import re
 import time
 from tracemalloc import start
-from pysat.solvers import Glucose3
+from pysat.solvers import Glucose4
 import fileinput
 from tabulate import tabulate
 import webbrowser
@@ -393,7 +393,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
 
     clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2)
 
-    solver = Glucose3()
+    solver = Glucose4()
     for clause in clauses:
         solver.add_clause(clause)
 

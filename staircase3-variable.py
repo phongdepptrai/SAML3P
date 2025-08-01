@@ -10,19 +10,19 @@ import sys
 
 
 # input variables in database ?? mertens 1
-n = 25
-m = 6
-c = 25
+n = 28
+m = 8
+c = 138
 val = 0
 cons = 0
 sol = 0
 solbb = 0
-type = 1
+type = 2
 #           0              1                2           3           4           5           6           7               8                   9
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
         "JACKSON.IN2","GUNTHER.IN2", "WARNECKE.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[3]
+filename = file[5]
 
 fileName = filename.split(".")
 
@@ -64,17 +64,7 @@ def input():
 
 
 def generate_variables(n,m,c):
-    x = [[j*m+i+1 for i in range (m)] for j in range(n)]
-    a = [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)]
-    s = []
-    cnt = m*n + c*n + 1
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(cnt)
-            cnt = cnt + 1
-        s.append(tmp)
-    return x, a, s
+    return [[j*m+i+1 for i in range (m)] for j in range(n)], [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)], [[m*n + c*n + j*c + i + 1 for i in range (c)] for j in range(n)]
 
 def dfs(v):
     visited[v] = True
@@ -316,20 +306,23 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2):
     #             continue
     #         clauses.append([ -A[j][t], A[j][t+1] , S[j][max(0,t-time_list[j]+1)]])
     
-    # #9
 
-    for i,j in adj:
+
+    # Staircase constraints #9
+    for i, j in adj:
         for k in range(m):
             if ip1[i][k] == 1 or ip1[j][k] == 1:
                 continue
-            left_bound = time_list[i] - 1
-            right_bound = c - time_list[j]
-            clauses.append([-X[i][k], -X[j][k], -get_var("T", j, left_bound)])
-            for t in range (left_bound + 1, right_bound):
-                t_i = t - time_list[i]+1
-                clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
-                clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
+            for t1 in range(c - time_list[i] + 1):
+                # t1 > t2
+                for t2 in range(c - time_list[j] + 1):
+                    if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
+                        continue
+                    if t1 > t2:
+                        clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
+
+
+    # #9
     # for i, j in adj:
     #     for k in range(m):
     #         if ip1[i][k] == 1 or ip1[j][k] == 1:
@@ -379,23 +372,15 @@ def print_solution(solution):
         return None
     else:
         x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
-        a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-        # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
-        cnt = m*n + c*n 
-        s = []
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
+        a = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
         table = [[0 for t in range(c)] for k in range(m)]
         for k in range(m):
             for t in range(c):
                 for j in range(n):
                     if x[j][k] > 0 and a[j][t] > 0 and table[k][t] == 0:
                         for l in range(max(0,t-time_list[j]),t+1):
-                            if l < len(s[j]) and s[j][l] > 0:
+                            if s[j][l] > 0:
                                 table[k][t] = j+1
 
         # Generate HTML content
@@ -453,15 +438,8 @@ def get_value(solution,best_value):
         return 100, []
     else:
         x = [[  solution[j*m+i] for i in range (m)] for j in range(n)]
-        a = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
-        s = []
-        cnt = m*n + c*n
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
+        a = [[  solution[m*n + c*n + j*c + i ] for i in range (c)] for j in range(n)]
         t = 0
         value = 0
 
@@ -471,7 +449,7 @@ def get_value(solution,best_value):
                 if a[j][t] > 0 :
                     # tmp = tmp + W[j]
                     for l in range(max(0,t-time_list[j]),t+1):
-                        if l < len(s[j]) and s[j][l] > 0 :
+                        if s[j][l] > 0:
                             tmp = tmp + W[j]
                             # print(tmp)
                             break
@@ -489,7 +467,7 @@ def get_value(solution,best_value):
                     # tmp = tmp + W[j]
                     # station.append(j+1)
                     for l in range(max(0,t-time_list[j]),t+1):
-                        if l < len(s[j]) and s[j][l] > 0:
+                        if s[j][l] > 0:
                             tmp = tmp + W[j]
                             station.append(j+1)
                             break
@@ -556,13 +534,12 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
                 # print(stations)
 
 
-
+X, S, A = generate_variables(n,m,c)
 input()
-X, A, S = generate_variables(n,m,c)
-val = max(S)
+val = max(A)
 
 # print(val)
-var_counter = max(val)
+var_counter = val[c-1]
 var_map = {}
 
 sol = 0
@@ -573,17 +550,8 @@ end_time = time.time()
 if(solution is not None):
     print_solution(solution)
     x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
-    a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-    # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
-
-    cnt = m*n + c*n 
-    s = []
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(solution[cnt])
-            cnt += 1
-        s.append(tmp)
+    s = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
+    a = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
     
     with open("output.txt", "a") as output_file: 
         sys.stdout = output_file

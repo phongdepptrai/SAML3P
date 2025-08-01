@@ -1,3 +1,12 @@
+problem.wcnf
+
+maxhs
+
+
+
+# Google Cloud platform key file
+salb
+salb.pub
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

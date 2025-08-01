@@ -7,22 +7,22 @@ import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-
+import test
 
 # input variables in database ?? mertens 1
-n = 25
-m = 6
+n = 29
+m = 14
 c = 25
 val = 0
 cons = 0
 sol = 0
 solbb = 0
-type = 1
+type = 2
 #           0              1                2           3           4           5           6           7               8                   9
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
         "JACKSON.IN2","GUNTHER.IN2", "WARNECKE.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[3]
+filename = file[4]
 
 fileName = filename.split(".")
 
@@ -316,31 +316,18 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2):
     #             continue
     #         clauses.append([ -A[j][t], A[j][t+1] , S[j][max(0,t-time_list[j]+1)]])
     
-    # #9
-
-    for i,j in adj:
+    #9
+    for i, j in adj:
         for k in range(m):
             if ip1[i][k] == 1 or ip1[j][k] == 1:
                 continue
-            left_bound = time_list[i] - 1
-            right_bound = c - time_list[j]
-            clauses.append([-X[i][k], -X[j][k], -get_var("T", j, left_bound)])
-            for t in range (left_bound + 1, right_bound):
-                t_i = t - time_list[i]+1
-                clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
-                clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
-    # for i, j in adj:
-    #     for k in range(m):
-    #         if ip1[i][k] == 1 or ip1[j][k] == 1:
-    #             continue
-    #         for t1 in range(c - time_list[i] +1):
-    #             #t1>t2
-    #             for t2 in range(c-time_list[j]+1):
-    #                 if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
-    #                     continue
-    #                 if t1 > t2:
-    #                     clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
+            for t1 in range(c - time_list[i] +1):
+                #t1>t2
+                for t2 in range(c-time_list[j]+1):
+                    if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
+                        continue
+                    if t1 > t2:
+                        clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
     cons = len(clauses)
     print("Constraints:",cons)
 

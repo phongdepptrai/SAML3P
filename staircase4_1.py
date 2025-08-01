@@ -1,14 +1,15 @@
 from math import inf
+import math
 import re
 import time
-from tracemalloc import start
+
 from pysat.solvers import Glucose4
 import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-
-
+import pysat.pb as PBEnc
+import csv
 # input variables in database ?? mertens 1
 n = 25
 m = 6
@@ -38,29 +39,30 @@ clauses = []
 time_list = []
 adj = []
 forward = [0 for i in range(n)]
+var_map = {}
+var_counter = 0
 # W = [41, 13, 21, 24, 11, 11, 41, 32, 31, 25, 29, 25, 31, 3, 14, 37, 34, 6, 18, 35, 18, 19, 25, 40, 20, 20, 36, 23, 29, 48, 41, 20, 31, 25, 1]
 
-
-
-
-def input():
+def read_input():
     cnt = 0
-    for line in fileinput.input('presedent_graph/'+filename):
-        line = line.strip()
-        if line:
-            if cnt == 0:
-                n = int(line)
-            elif cnt <= n: # type: ignore
-                time_list.append(int(line))
-            else:
-                line = line.split(",")
-                if(line[0] != "-1" and line[1] != "-1"):
-                    adj.append([int(line[0])-1, int(line[1])-1])
-                    neighbors[int(line[0])-1][int(line[1])-1] = 1
-                    reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
+    with open('presedent_graph/' + filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                if cnt == 0:
+                    n = int(line)
+                elif cnt <= n: # type: ignore
+                    time_list.append(int(line))
                 else:
-                    break
-            cnt = cnt + 1
+                    line = line.split(",")
+                    if(line[0] != "-1" and line[1] != "-1"):
+                        adj.append([int(line[0])-1, int(line[1])-1])
+                        neighbors[int(line[0])-1][int(line[1])-1] = 1
+                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+                    else:
+                        break
+                cnt = cnt + 1
 
 
 def generate_variables(n,m,c):
@@ -173,10 +175,12 @@ def set_var(var, name, *args):
         var_map[key] = var
     return var_map[key]
 
-def generate_clauses(n,m,c,time_list,adj,ip1,ip2):
+def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
-
+    global clauses
+    global var_map
+    global var_counter
     #staircase constraints
     for j in range(n):
         
@@ -506,7 +510,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     # print(ip2[])
 
 
-    clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2)
+    clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A)
 
     solver = Glucose4()
     for clause in clauses:
@@ -556,54 +560,121 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
                 # print(stations)
 
 
+file_name = [
+    ["MERTENS", 6, 6],      #0
+    ["MERTENS", 2, 18],     #1
+    ["BOWMAN", 5, 20],      #2
+    ["JAESCHKE", 8, 6],     #3
+    ["JAESCHKE", 3, 18],    #4
+    ["JACKSON", 8, 7],      #5
+    ["JACKSON", 3, 21],     #6
+    ["MANSOOR", 4, 48],     #7
+    ["MANSOOR", 2, 94],     #8
+    ["MITCHELL", 8, 14],    #9
+    ["MITCHELL", 3, 39],    #10
+    ["ROSZIEG", 10, 14],    #11
+    ["ROSZIEG", 4, 32],     #12
+    ["ROSZIEG", 6, 25],     #13
+    ["HESKIA", 8, 138],    #14
+    ["HESKIA", 3, 342],     #15
+    ["HESKIA", 5, 205],     #16
+    ["BUXEY", 14, 25],      #13
+    ["BUXEY", 7, 47],       #14
+    ["BUXEY", 8, 41],      #15
+    ["BUXEY", 11, 33],      #16
+    ["SAWYER", 14, 25],     #15
+    ["SAWYER", 7, 47],      #16
+    ["SAWYER", 8, 41],     #17
+    ["SAWYER", 12, 30],     #18
+    ["GUNTHER", 14, 40],    #17
+    ["GUNTHER", 9, 54],     #18
+    ["GUNTHER", 9, 61],     #19
+    ["WARNECKE",25, 65]
+    ]
 
-input()
-X, A, S = generate_variables(n,m,c)
-val = max(S)
+def reset(idx):
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward
+    m = file_name[idx][1]
+    c = file_name[idx][2]
+    val = 0
+    cons = 0
+    sol = 0
+    solbb = 0
+    type = 1
+    filename = file_name[idx][0] + ".IN2"
+    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
+    neighbors = [[ 0 for i in range(50)] for j in range(50)]
+    reversed_neighbors = [[ 0 for i in range(50)] for j in range(50)]
+    visited = [False for i in range(50)]
+    toposort = []
+    clauses = []
+    time_list = []
+    adj = []
+    forward = [0 for i in range(50)]
 
-# print(val)
-var_counter = max(val)
-var_map = {}
+def main():
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
+    for idx in range(0,28):
+        reset(idx)
+        read_input()
+        X, A, S = generate_variables(n,m,c)
+        val = max(S)
 
-sol = 0
-solbb = 0
-start_time = time.time()
-solution, sol, solbb, solval = optimal(X,S,A,n,m,c,sol,solbb,start_time) #type: ignore
-end_time = time.time()
-if(solution is not None):
-    print_solution(solution)
-    x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
-    a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-    # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
+        # print(val)
+        var_counter = max(val)
+        var_map = {}
 
-    cnt = m*n + c*n 
-    s = []
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(solution[cnt])
-            cnt += 1
-        s.append(tmp)
-    
-    with open("output.txt", "a") as output_file: 
-        sys.stdout = output_file
-        # print(, file=output_file) 
-        print(filename,type,file=output_file)
-        
-        print("#Var:",var_counter,file=output_file)
-        print("#Cons:",len(clauses),file=output_file)
-        print("value:",solval,file=output_file)
-        print("#sol:",sol,file=output_file)
-        print("#solbb:",solbb,file=output_file)
-        print(f"Time taken: {end_time - start_time} seconds",file=output_file)
-        print(" ",file=output_file)
+        sol = 0
+        solbb = 0
+        start_time = time.time()
+        solution, sol, solbb, solval = optimal(X,S,A,n,m,c,sol,solbb,start_time)
+        end_time = time.time()
+        if(solution is not None):
+            print_solution(solution)
+            x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
+            a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
+            # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
+
+            cnt = m*n + c*n 
+            s = []
+            for j in range(n):
+                tmp = []
+                for i in range(c - time_list[j] + 1):
+                    tmp.append(solution[cnt])
+                    cnt += 1
+                s.append(tmp)
+            
+            
+            csv_file = "output.csv"
+            write_header = False
+            try:
+                with open(csv_file, "r", newline='') as f:
+                    pass
+            except FileNotFoundError:
+                write_header = True
+            with open(csv_file, "a", newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                if write_header:
+                    writer.writerow(["filename", "m", "c", "#Var", "#Cons", "value", "#sol", "#solbb", "Time taken (seconds)"])
+                writer.writerow([
+                    filename.split(".")[0],
+                    m,
+                    c,
+                    var_counter,
+                    len(clauses),
+                    solval,
+                    sol,
+                    solbb,
+                    end_time - start_time
+                ])
 
 
 
 
-# print(clauses)
-# tmp = 0
-# for i in time_list: 
-#     tmp = tmp + i
-# print(tmp)
+main()
+    # print(clauses)
+    # tmp = 0
+    # for i in time_list: 
+    #     tmp = tmp + i
+    # print(tmp)
 
