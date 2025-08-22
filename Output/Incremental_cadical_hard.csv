@@ -1,0 +1,8 @@
+Instance,n,m,c,variables, soft, constraints, peak, Status, Time
+WEEMAG,75,63,28,8019564,1834,16131863,1859,Optimal,385.74864
+WEEMAG,75,63,29,8305701,1834,16720306,1858,Optimal,353.10648
+WEEMAG,75,30,56,2183617,875,8069912,887,Optimal,2785.88587
+BARTHOL2, 148, 51, 84, ?,?,?,?,Timeout, >=3600s
+BARTHOL2, 148, 50, 85, ?,?,?,?,Timeout, >=3600s
+BARTHOL2, 148, 7, 805, ?,?,?,?, Timeout, >=3600s
+LUT1, 32, 

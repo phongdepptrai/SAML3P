@@ -740,7 +740,7 @@ def reset(idx):
 
 def main():
     global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
-    for idx in range(28,29):
+    for idx in range(27,29):
         reset(idx)
         read_input()
         X, A, S = generate_variables(n,m,c)

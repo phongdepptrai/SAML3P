@@ -1,22 +1,25 @@
 from math import inf
 import re
 import time
+import signal
+import os
+import csv
 from tracemalloc import start
-from pysat.solvers import Glucose4
+
+from numpy import var
+from pysat.solvers import Glucose4 as Cadical195
 import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-import csv
-import signal
-
+from pysat.pb import PBEnc
 
 # input variables in database ?? mertens 1
-n = 25
-m = 6
-c = 25
+n = 58 #58
+m = 25 #25
+c = 65 #65
 val = 0
-cons = 0
+cons = 0    
 sol = 0
 solbb = 0
 type = 1
@@ -24,12 +27,8 @@ type = 1
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
         "JACKSON.IN2","GUNTHER.IN2", "WARNECKE.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[3]
-
-fileName = filename.split(".")
-
-with open('task_power/'+fileName[0]+'.txt', 'r') as file:
-    W = [int(line.strip()) for line in file]
+filename = ""
+W = []
 
 neighbors = [[ 0 for i in range(n)] for j in range(n)]
 reversed_neighbors = [[ 0 for i in range(n)] for j in range(n)]
@@ -43,28 +42,6 @@ forward = [0 for i in range(n)]
 var_map = {}
 var_counter = 0
 # W = [41, 13, 21, 24, 11, 11, 41, 32, 31, 25, 29, 25, 31, 3, 14, 37, 34, 6, 18, 35, 18, 19, 25, 40, 20, 20, 36, 23, 29, 48, 41, 20, 31, 25, 1]
-
-def read_input():
-    cnt = 0
-    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
-    with open('presedent_graph/' + filename, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                if cnt == 0:
-                    n = int(line)
-                elif cnt <= n: # type: ignore
-                    time_list.append(int(line))
-                else:
-                    line = line.split(",")
-                    if(line[0] != "-1" and line[1] != "-1"):
-                        adj.append([int(line[0])-1, int(line[1])-1])
-                        neighbors[int(line[0])-1][int(line[1])-1] = 1
-                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
-                    else:
-                        break
-                cnt = cnt + 1
-
 
 def generate_variables(n,m,c):
     x = [[j*m+i+1 for i in range (m)] for j in range(n)]
@@ -157,7 +134,7 @@ def preprocess(n,m,c,time_list,adj):
     return ip1,ip2
 
 def get_key(value):
-    for key, val in var_map.items():
+    for key, value in var_map.items():
         if val == value:
             return key
     return None
@@ -179,9 +156,6 @@ def set_var(var, name, *args):
 def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
-    global clauses
-    global var_map
-    global var_counter
 
     #staircase constraints
     for j in range(n):
@@ -371,14 +345,6 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     print("12 constraints:", len(clauses))
     return clauses
 
-def solve(solver):
-    if solver.solve():
-        model = solver.get_model()
-        return model
-    else:
-        # print("no solution")
-        return None
-
 class TimeoutException(Exception):
     pass
 
@@ -392,7 +358,10 @@ def solve_with_timeout(solver, timeout_seconds):
         signal.alarm(timeout_seconds)
         
         # Try to solve
-        result = solve(solver)
+        if solver.solve():
+            result = solver.get_model()
+        else:
+            result = None
         
         # Cancel timeout if we finish early
         signal.alarm(0)
@@ -402,6 +371,17 @@ def solve_with_timeout(solver, timeout_seconds):
         signal.alarm(0)  # Cancel timeout
         print(f"Solver timed out after {timeout_seconds} seconds")
         return None
+
+def solve(solver, start_time, timeout=3600):
+    current_time = time.time()
+    remaining_time = timeout - (current_time - start_time)
+    
+    if remaining_time <= 0:
+        print("Timeout reached before calling solver")
+        return None
+    
+    # Use signal-based timeout
+    return solve_with_timeout(solver, int(remaining_time))
 
 def print_solution(solution):
     if solution is None:
@@ -530,7 +510,7 @@ def get_value(solution,best_value):
 
         return value, unique_constraints
 
-def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_count, solbb_count, status, time_taken, filename="staircase4_results3.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_count, solbb_count, status, time_taken, filename="pb_glu_results.csv"):
     with open("Output/" + filename, "a", newline='') as f:
         writer = csv.writer(f)
         row = []
@@ -577,7 +557,28 @@ file_name = [
     ["GUNTHER", 9, 54],     #26
     ["GUNTHER", 9, 61],     #27
     ["WARNECKE",25, 65]     #28
-    ]
+]
+
+def read_input():
+    cnt = 0
+    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
+    with open('presedent_graph/' + filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                if cnt == 0:
+                    n = int(line)
+                elif cnt <= n: # type: ignore
+                    time_list.append(int(line))
+                else:
+                    line = line.split(",")
+                    if(line[0] != "-1" and line[1] != "-1"):
+                        adj.append([int(line[0])-1, int(line[1])-1])
+                        neighbors[int(line[0])-1][int(line[1])-1] = 1
+                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+                    else:
+                        break
+                cnt = cnt + 1
 
 def reset(idx):
     global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
@@ -591,7 +592,7 @@ def reset(idx):
     var_counter = 0
     var_map = {}
     filename = file_name[idx][0] + ".IN2"
-    W = [int(line.strip()) for line in open('task_power3/'+file_name[idx][0]+'.txt')]
+    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
     neighbors = [[ 0 for i in range(100)] for j in range(100)]
     reversed_neighbors = [[ 0 for i in range(100)] for j in range(100)]
     visited = [False for i in range(100)]
@@ -602,6 +603,7 @@ def reset(idx):
     forward = [0 for i in range(100)]
 
 def optimal(X,S,A,n,m,c,sol,solbb,start_time):
+    global var_counter, var_map
     ip1,ip2 = preprocess(n,m,c,time_list,adj)
 
     # print(ip2[])
@@ -609,23 +611,14 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
 
     clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A)
 
-    solver = Glucose4()
+    solver = Cadical195()
     for clause in clauses:
         solver.add_clause(clause)
 
-    # Check timeout before initial solve  
-    current_time = time.time()
-    remaining_time = 3600 - (current_time - start_time)
-    if remaining_time <= 0:
-        print("Instance timeout before initial solve")
-        return None, sol, solbb, float('inf')
-
-    # Use timeout for initial solve
-    model = solve_with_timeout(solver, min(int(remaining_time), 3600))
+    model = solve(solver,start_time = start_time)
     if model is None:
-        print("Initial solve timed out or no solution")
+        print("No solution found.")
         return None, sol, solbb, float('inf')
-        
     bestSolution = model 
     infinity = 1000000
     result = get_value(model, infinity)
@@ -633,32 +626,44 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     bestValue, station = result
     print("initial value:",bestValue)
     print("initial station:",station)
-    for t in range(c):
-        for stations in station:
+    # for t in range(c):
+    #     for stations in station:
             
-            solver.add_clause([-A[j-1][t] for j in stations])
+    #         solver.add_clause([-A[j-1][t] for j in stations])
+
+    #∑(i∈{1,...,n}) w_i * A_{i,t} ≤ bestValue  ∀t∈T
+    for t in range(c):
+        lits = []
+        coeffs = []
+        for j in range(n):
+            lits.append(A[j][t])
+            coeffs.append(W[j])
+        pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id = var_counter)
+        if pb_enc.nv > var_counter:
+            var_counter = pb_enc.nv + 1
+        for clause in pb_enc.clauses:
+            solver.add_clause(clause)
     sol = 1
     solbb = 1
     while True:
-        # Check timeout
+        # start_time = time.time()
+        sol = sol + 1
+        lits = []
+        coeffs = []
+        model = solve(solver,start_time)
+        if model is None:
+            # print(bestSolution)
+            return bestSolution, sol, solbb, bestValue
+        solver = Cadical195()
+        for clause in clauses:
+            solver.add_clause(clause)
+        
         current_time = time.time()
         if current_time - start_time >= 3600:
-            print("Instance timeout during optimization")
+            print("time out")
             return bestSolution, sol, solbb, bestValue
-            
-        remaining_time = 3600 - (current_time - start_time)
-        if remaining_time <= 1:  # Need at least 1 second
-            print("Instance timeout - insufficient time remaining")
-            return bestSolution, sol, solbb, bestValue
-            
-        sol = sol + 1
-        # Use timeout for each iterative solve
-        model = solve_with_timeout(solver, min(int(remaining_time), 3600))  # Max 3600s per iteration
-
-        if model is None:
-            # Could be timeout or no more solutions
-            return bestSolution, sol, solbb, bestValue
-            
+        # print(f"Time taken: {end_time - start_time} seconds")
+        
         value, station = get_value(model, bestValue)
         # print("value:",value)
         # print("station:",station)
@@ -666,31 +671,36 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             solbb = sol
             bestSolution = model
             bestValue = value
-            # print("new value:",bestValue)
+            print("new value:",bestValue, end = "\r")
             # print("new station:",station)
 
         for t in range(c):
-            for stations in station:
-                solver.add_clause([-A[j-1][t] for j in stations])
+            lits = []  
+            coeffs = []
+            for j in range(n):
+                lits.append(A[j][t])
+                coeffs.append(W[j])
+            pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id= var_counter + 1)
+            if pb_enc.nv > var_counter:
+                var_counter = pb_enc.nv + 1
+            for clause in pb_enc.clauses:
+                solver.add_clause(clause)
                 # print(stations)
-
-
 
 def main():
     global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
     
     # Create Output directory if it doesn't exist
-    import os
     if not os.path.exists("Output"):
         os.makedirs("Output")
     
     # Write CSV header only if file doesn't exist
-    if not os.path.exists("Output/staircase4_results3.csv"):
-        with open("Output/staircase4_results3.csv", "w", newline='') as f:
+    if not os.path.exists("Output/pb_glu_results.csv"):
+        with open("Output/pb_glu_results.csv", "w", newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Instance", "n", "m", "c", "Variables", "Constraints", "Peak_Power", "Solutions", "Best_Solutions", "Status", "Time"])
     
-    for idx in range(0, 29):
+    for idx in range(28, 29):
         print(f"Processing instance {idx + 1}/29: {file_name[idx][0]}")
         reset(idx)
         read_input()
@@ -707,7 +717,10 @@ def main():
         end_time = time.time()
         
         status = "Optimal" if solution is not None else "No Solution"
-        peak_power = solval if solution is not None else 0
+        if solution is None:
+            status = "Timeout" if end_time - start_time >= 3600 else "No Solution"
+            
+        peak_power = solval if solution is not None else float('inf')
         
         write_fancy_table_to_csv(
             filename.split(".")[0], 

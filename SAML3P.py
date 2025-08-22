@@ -1,12 +1,13 @@
 from math import inf
 import re
 import time
-from tracemalloc import start
+
 from pysat.solvers import Glucose4
-import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
+import csv
+import signal
 # input variables in database ?? mertens 1
 n = 35
 m = 14
@@ -18,9 +19,9 @@ solbb = 0
 type = 1
 #           0              1                2           3           4           5           6           7               8                   9
 file = ["MITCHELL.IN2","MERTENS.IN2","BOWMAN.IN2","ROSZIEG.IN2","BUXEY.IN2","HESKIA.IN2","SAWYER.IN2","JAESCHKE.IN2","MANSOOR.IN2",
-        "JACKSON.IN2","GUNTHER.IN2"]
+        "JACKSON.IN2","GUNTHER.IN2", "WARNECKE.IN2"]
 #            9          10              11          12          13          14          15          16          17   
-filename = file[10]
+filename = file[3]
 
 fileName = filename.split(".")
 
@@ -35,29 +36,66 @@ toposort = []
 clauses = []
 time_list = []
 adj = []
+var_map = {}
+var_counter = 0
 # W = [41, 13, 21, 24, 11, 11, 41, 32, 31, 25, 29, 25, 31, 3, 14, 37, 34, 6, 18, 35, 18, 19, 25, 40, 20, 20, 36, 23, 29, 48, 41, 20, 31, 25, 1]
 
+file_name = [
+    ["MERTENS", 6, 6],      #0
+    ["MERTENS", 2, 18],     #1
+    ["BOWMAN", 5, 20],      #2
+    ["JAESCHKE", 8, 6],     #3
+    ["JAESCHKE", 3, 18],    #4
+    ["JACKSON", 8, 7],      #5
+    ["JACKSON", 3, 21],     #6
+    ["MANSOOR", 4, 48],     #7
+    ["MANSOOR", 2, 94],     #8
+    ["MITCHELL", 8, 14],    #9
+    ["MITCHELL", 3, 39],    #10
+    ["ROSZIEG", 10, 14],    #11
+    ["ROSZIEG", 4, 32],     #12
+    ["ROSZIEG", 6, 25],     #13
+    ["HESKIA", 8, 138],     #14
+    ["HESKIA", 3, 342],     #15
+    ["HESKIA", 5, 205],     #16
+    ["BUXEY", 14, 25],      #17
+    ["BUXEY", 7, 47],       #18
+    ["BUXEY", 8, 41],       #19
+    ["BUXEY", 11, 33],      #20
+    ["SAWYER", 14, 25],     #21
+    ["SAWYER", 7, 47],      #22
+    ["SAWYER", 8, 41],      #23
+    ["SAWYER", 12, 30],     #24
+    ["GUNTHER", 14, 40],    #25
+    ["GUNTHER", 9, 54],     #26
+    ["GUNTHER", 9, 61],     #27
+    ["WARNECKE",25, 65]     #28
+    ]
 
 
 
-def input():
+
+def read_input():
+    global n, m, c, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj
     cnt = 0
-    for line in fileinput.input('presedent_graph/'+filename):
-        line = line.strip()
-        if line:
-            if cnt == 0:
-                n = int(line)
-            elif cnt <= n: # type: ignore
-                time_list.append(int(line))
-            else:
-                line = line.split(",")
-                if(line[0] != "-1" and line[1] != "-1"):
-                    adj.append([int(line[0])-1, int(line[1])-1])
-                    neighbors[int(line[0])-1][int(line[1])-1] = 1
-                    reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+    # Use a context-managed file read to avoid fileinput's global state and ensure proper closure
+    with open('presedent_graph/' + filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                if cnt == 0:
+                    n = int(line)
+                elif cnt <= n:  # type: ignore
+                    time_list.append(int(line))
                 else:
-                    break
-            cnt = cnt + 1
+                    parts = line.split(",")
+                    if(parts[0] != "-1" and parts[1] != "-1"):
+                        adj.append([int(parts[0]) - 1, int(parts[1]) - 1])
+                        neighbors[int(parts[0]) - 1][int(parts[1]) - 1] = 1
+                        reversed_neighbors[int(parts[1]) - 1][int(parts[0]) - 1] = 1
+                    else:
+                        break
+                cnt = cnt + 1
 
 def generate_variables(n,m,c):
     return [[j*m+i+1 for i in range (m)] for j in range(n)], [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)], [[m*n + c*n + j*c + i + 1 for i in range (c)] for j in range(n)]
@@ -142,7 +180,7 @@ def preprocess(n,m,c,time_list,adj):
     return ip1,ip2
 
 
-def generate_clauses(n,m,c,time_list,adj,ip1,ip2):
+def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
     # 1
@@ -273,6 +311,30 @@ def solve(solver):
         # print("no solution")
         return None
 
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Solver timeout")
+
+def solve_with_timeout(solver, timeout_seconds):
+    try:
+        # Set up timeout signal
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+        
+        # Try to solve
+        result = solve(solver)
+        
+        # Cancel timeout if we finish early
+        signal.alarm(0)
+        return result
+        
+    except TimeoutException:
+        signal.alarm(0)  # Cancel timeout
+        print(f"Solver timed out after {timeout_seconds} seconds")
+        return None
+
 def print_solution(solution):
     if solution is None:
         # print("No solution found.")
@@ -385,21 +447,70 @@ def get_value(solution,best_value):
 
         return value, unique_constraints
 
+def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_count, solbb_count, status, time_taken, filename="SAML3P_glu_results.csv"):
+    with open("Output/" + filename, "a", newline='') as f:
+        writer = csv.writer(f)
+        row = []
+        row.append(ins)
+        row.append(str(n))
+        row.append(str(m))
+        row.append(str(c))
+        row.append(str(var_count))
+        row.append(str(cons_count))
+        row.append(str(peak))
+        row.append(str(sol_count))
+        row.append(str(solbb_count))
+        row.append(status)
+        row.append(str(time_taken))
+        writer.writerow(row)
+
+def reset(idx):
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, var_map, var_counter
+    m = file_name[idx][1]
+    c = file_name[idx][2]
+    val = 0
+    cons = 0
+    sol = 0
+    solbb = 0
+    type = 1
+    var_counter = 0
+    var_map = {}
+    filename = file_name[idx][0] + ".IN2"
+    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
+    neighbors = [[ 0 for i in range(100)] for j in range(100)]
+    reversed_neighbors = [[ 0 for i in range(100)] for j in range(100)]
+    visited = [False for i in range(100)]
+    toposort = []
+    clauses = []
+    time_list = []
+    adj = []
+
 def optimal(X,S,A,n,m,c,sol,solbb,start_time):
+    print(n,m,c)
     ip1,ip2 = preprocess(n,m,c,time_list,adj)
 
     # print(ip2[])
 
 
-    clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2)
+    clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A)
 
     solver = Glucose4()
     for clause in clauses:
         solver.add_clause(clause)
 
-    model = solve(solver)
+    # Check timeout before initial solve  
+    current_time = time.time()
+    remaining_time = 3600 - (current_time - start_time)
+    if remaining_time <= 0:
+        print("Instance timeout before initial solve")
+        return None, sol, solbb, float('inf')
+
+    # Use timeout for initial solve
+    model = solve_with_timeout(solver, min(int(remaining_time), 3600))
     if model is None:
-        return None
+        print("Initial solve timed out or no solution")
+        return None, sol, solbb, float('inf')
+        
     bestSolution = model 
     infinity = 1000000
     result = get_value(model, infinity)
@@ -414,17 +525,25 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     sol = 1
     solbb = 1
     while True:
-        # start_time = time.time()
-        sol = sol + 1
-        model = solve(solver)
+        # Check timeout
         current_time = time.time()
         if current_time - start_time >= 3600:
-            print("time out")
+            print("Instance timeout during optimization")
             return bestSolution, sol, solbb, bestValue
-        # print(f"Time taken: {end_time - start_time} seconds")
+            
+        remaining_time = 3600 - (current_time - start_time)
+        if remaining_time <= 1:  # Need at least 1 second
+            print("Instance timeout - insufficient time remaining")
+            return bestSolution, sol, solbb, bestValue
+            
+        sol = sol + 1
+        # Use timeout for each iterative solve
+        model = solve_with_timeout(solver, min(int(remaining_time), 3600))  # Max 3600s per iteration
+
         if model is None:
-            # print(bestSolution)
+            # Could be timeout or no more solutions
             return bestSolution, sol, solbb, bestValue
+            
         value, station = get_value(model, bestValue)
         # print("value:",value)
         # print("station:",station)
@@ -440,41 +559,52 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
                 solver.add_clause([-A[j-1][t] for j in stations])
                 # print(stations)
 
-start_time = time.time()
-X, S, A = generate_variables(n,m,c)
-input()
-val = max(A)
-# print(val)
+def main():
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, var_map, var_counter
+    
+    # Create Output directory if it doesn't exist
+    import os
+    if not os.path.exists("Output"):
+        os.makedirs("Output")
+    
+    # Write CSV header only if file doesn't exist
+    if not os.path.exists("Output/SAML3P_glu_results.csv"):
+        with open("Output/SAML3P_glu_results.csv", "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Instance", "n", "m", "c", "Variables", "Constraints", "Peak_Power", "Solutions", "Best_Solutions", "Status", "Time"])
+    
+    for idx in range(14, 29):
+        print(f"Processing instance {idx + 1}/29: {file_name[idx][0]}")
+        reset(idx)
+        read_input()
+        X, S, A = generate_variables(n,m,c)
+        val = max(max(row) for row in A)
 
-sol = 0
-solbb = 0
-solution, sol, solbb, solval = optimal(X,S,A,n,m,c,sol,solbb,start_time) #type: ignore
-end_time = time.time()
-if(solution is not None):
-    print_solution(solution)
-    x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
-    s = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-    a = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
+        var_counter = val
+        var_map = {}
 
-    with open("output.txt", "a") as output_file: 
-        sys.stdout = output_file
-        # print(, file=output_file) 
-        print(filename,type,file=output_file)
+        sol = 0
+        solbb = 0
+        start_time = time.time()
+        solution, sol, solbb, solval = optimal(X,S,A,n,m,c,sol,solbb,start_time)
+        end_time = time.time()
         
-        print("#Var:",val[c-1],file=output_file)
-        print("#Cons:",len(clauses),file=output_file)
-        print("value:",solval,file=output_file)
-        print("#sol:",sol,file=output_file)
-        print("#solbb:",solbb,file=output_file)
-        print(f"Time taken: {end_time - start_time} seconds",file=output_file)
-        print(" ",file=output_file)
+        status = "Optimal" if solution is not None else "No Solution"
+        peak_power = solval if solution is not None else 0
+        
+        write_fancy_table_to_csv(
+            filename.split(".")[0], 
+            n, m, c, 
+            var_counter, 
+            len(clauses), 
+            peak_power, 
+            sol, 
+            solbb, 
+            status, 
+            end_time - start_time
+        )
+        
+        print(f"Instance {file_name[idx][0]} completed: Peak Power = {peak_power}, Time = {end_time - start_time:.2f}s")
 
-
-
-
-# print(clauses)
-# tmp = 0
-# for i in time_list: 
-#     tmp = tmp + i
-# print(tmp)
+main()
 

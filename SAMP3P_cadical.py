@@ -1,20 +1,17 @@
 from math import inf
 import re
 import time
-from tracemalloc import start
-from pysat.solvers import Glucose4
-import fileinput
+
+from pysat.solvers import Cadical195 as Glucose4
 from tabulate import tabulate
 import webbrowser
 import sys
 import csv
 import signal
-
-
 # input variables in database ?? mertens 1
-n = 25
-m = 6
-c = 25
+n = 35
+m = 14
+c = 40
 val = 0
 cons = 0
 sol = 0
@@ -39,45 +36,69 @@ toposort = []
 clauses = []
 time_list = []
 adj = []
-forward = [0 for i in range(n)]
 var_map = {}
 var_counter = 0
 # W = [41, 13, 21, 24, 11, 11, 41, 32, 31, 25, 29, 25, 31, 3, 14, 37, 34, 6, 18, 35, 18, 19, 25, 40, 20, 20, 36, 23, 29, 48, 41, 20, 31, 25, 1]
 
+file_name = [
+    ["MERTENS", 6, 6],      #0
+    ["MERTENS", 2, 18],     #1
+    ["BOWMAN", 5, 20],      #2
+    ["JAESCHKE", 8, 6],     #3
+    ["JAESCHKE", 3, 18],    #4
+    ["JACKSON", 8, 7],      #5
+    ["JACKSON", 3, 21],     #6
+    ["MANSOOR", 4, 48],     #7
+    ["MANSOOR", 2, 94],     #8
+    ["MITCHELL", 8, 14],    #9
+    ["MITCHELL", 3, 39],    #10
+    ["ROSZIEG", 10, 14],    #11
+    ["ROSZIEG", 4, 32],     #12
+    ["ROSZIEG", 6, 25],     #13
+    ["HESKIA", 8, 138],     #14
+    ["HESKIA", 3, 342],     #15
+    ["HESKIA", 5, 205],     #16
+    ["BUXEY", 14, 25],      #17
+    ["BUXEY", 7, 47],       #18
+    ["BUXEY", 8, 41],       #19
+    ["BUXEY", 11, 33],      #20
+    ["SAWYER", 14, 25],     #21
+    ["SAWYER", 7, 47],      #22
+    ["SAWYER", 8, 41],      #23
+    ["SAWYER", 12, 30],     #24
+    ["GUNTHER", 14, 40],    #25
+    ["GUNTHER", 9, 54],     #26
+    ["GUNTHER", 9, 61],     #27
+    ["WARNECKE",25, 65]     #28
+    ]
+
+
+
+
 def read_input():
+    global n, m, c, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj
     cnt = 0
-    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
+    # Use a context-managed file read to avoid fileinput's global state and ensure proper closure
     with open('presedent_graph/' + filename, 'r') as f:
         for line in f:
             line = line.strip()
             if line:
                 if cnt == 0:
                     n = int(line)
-                elif cnt <= n: # type: ignore
+                elif cnt <= n:  # type: ignore
                     time_list.append(int(line))
                 else:
-                    line = line.split(",")
-                    if(line[0] != "-1" and line[1] != "-1"):
-                        adj.append([int(line[0])-1, int(line[1])-1])
-                        neighbors[int(line[0])-1][int(line[1])-1] = 1
-                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+                    parts = line.split(",")
+                    if(parts[0] != "-1" and parts[1] != "-1"):
+                        adj.append([int(parts[0]) - 1, int(parts[1]) - 1])
+                        neighbors[int(parts[0]) - 1][int(parts[1]) - 1] = 1
+                        reversed_neighbors[int(parts[1]) - 1][int(parts[0]) - 1] = 1
                     else:
                         break
                 cnt = cnt + 1
 
-
 def generate_variables(n,m,c):
-    x = [[j*m+i+1 for i in range (m)] for j in range(n)]
-    a = [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)]
-    s = []
-    cnt = m*n + c*n + 1
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(cnt)
-            cnt = cnt + 1
-        s.append(tmp)
-    return x, a, s
+    return [[j*m+i+1 for i in range (m)] for j in range(n)], [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)], [[m*n + c*n + j*c + i + 1 for i in range (c)] for j in range(n)]
 
 def dfs(v):
     visited[v] = True
@@ -124,7 +145,9 @@ def preprocess(n,m,c,time_list,adj):
         k = m-1
         latest_start[j][k] = c - time_list[j]
         for i in range(n):
+            #?????
             if(neighbors[j][i] == 1): 
+                
                 latest_start[j][k] = min(latest_start[j][k], latest_start[i][k] - time_list[j])
                 while(latest_start[j][k] < 0):
                     ip1[j][k] = 1
@@ -156,130 +179,52 @@ def preprocess(n,m,c,time_list,adj):
     # print(ip2)
     return ip1,ip2
 
-def get_key(value):
-    for key, val in var_map.items():
-        if val == value:
-            return key
-    return None
-def get_var(name, *args):
-    global var_counter
-    key = (name,) + args
-
-    if key not in var_map:
-        var_counter += 1
-        var_map[key] = var_counter
-    return var_map[key]
-
-def set_var(var, name, *args):
-    key = (name,) + args
-    if key not in var_map:
-        var_map[key] = var
-    return var_map[key]
 
 def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
-    global clauses
-    global var_map
-    global var_counter
-
-    #staircase constraints
-    for j in range(n):
-        
-        set_var(X[j][0], "R", j, 0)
-        for k in range(1,m-1):
+    # 1
+    for j in range (0, n):
+        constraint = []
+        for k in range (0, m):
             if ip1[j][k] == 1:
-                set_var(get_var("R", j, k-1), "R", j, k)
-            else:
-                clauses.append([-get_var("R", j, k-1), get_var("R", j, k)])
-                clauses.append([-X[j][k], get_var("R", j, k)])
-                clauses.append([-X[j][k], -get_var("R", j, k-1)])
-                clauses.append([X[j][k], get_var("R", j, k-1), -get_var("R", j, k)])
-        # last machine
-        if ip1[j][m-1] == 1:
-            clauses.append([get_var("R", j, m-2)])
-        else:
-            clauses.append([get_var("R", j, m-2), X[j][m-1]])
-            clauses.append([-get_var("R", j, m-2), -X[j][m-1]])
-        
-
-    for (i,j) in adj:
-        for k in range(m-1):
-            if ip1[i][k+1] == 1:
                 continue
-            clauses.append([-get_var("R", j, k), -X[i][k+1]])
-    # # 1
-    # for j in range (0, n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     constraint = []
-    #     for k in range (0, m):
-    #         if ip1[j][k] == 1:
-    #             continue
-    #         constraint.append(X[j][k])
-    #     clauses.append(constraint)
-    # # 2 
-    # for j in range(0,n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     for k1 in range (0,m-1):
-    #         for k2 in range(k1+1,m):
-    #             if ip1[j][k1] == 1 or ip1[j][k2] == 1:
-    #                 continue
-    #             clauses.append([-X[j][k1], -X[j][k2]])
+            constraint.append(X[j][k])
+        clauses.append(constraint)
+    # 2 
+    for j in range(0,n):
+        for k1 in range (0,m-1):
+            for k2 in range(k1+1,m):
+                if ip1[j][k1] == 1 or ip1[j][k2] == 1:
+                    continue
+                clauses.append([-X[j][k1], -X[j][k2]])
 
-    # #3
-    # for a,b in adj:
-    #     for k in range (0, m-1):
-    #         for h in range(k+1, m):
-    #             if ip1[b][k] == 1 or ip1[a][h] == 1:
-    #                 continue
-    #             clauses.append([-X[b][k], -X[a][h]])
+    #3
+    for a,b in adj:
+        for k in range (0, m-1):
+            for h in range(k+1, m):
+                if ip1[b][k] == 1 or ip1[a][h] == 1:
+                    continue
+                clauses.append([-X[b][k], -X[a][h]])
+    print("first 3 constraints:", len(clauses))
 
+    #4
 
-    print("first 3 constraints (staircase):", len(clauses))
-
-    # T[j][t] represents "task j starts at time t or earlier"
     for j in range(n):
-        last_t = c-time_list[j]
-        
-        # Special case: Full cycle tasks (only one feasible start time: t=0)
-        if last_t == 0:
-            # Force the task to start at t=0 (equivalent to original constraint #4)
-            clauses.append([S[j][0]])
-        else:
-            # First time slot
-            set_var(S[j][0], "T", j, 0)
-            
-            # Intermediate time slots
-            for t in range(1, last_t):
-                clauses.append([-get_var("T", j, t-1), get_var("T", j, t)]) # T[j][t-1] -> T[j][t]
-                clauses.append([-S[j][t], get_var("T", j, t)]) # S[j][t] -> T[j][t]
-                clauses.append([-S[j][t], -get_var("T", j, t-1)]) # S[j][t] -> ¬T[j][t-1]
-                clauses.append([S[j][t], get_var("T", j, t-1), -get_var("T", j, t)]) # T[j][t] -> (T[j][t-1] ∨ S[j][t])
-            
-            # Last time slot (ensures at least one start time)
-            clauses.append([get_var("T", j, last_t-1), S[j][last_t]])
-            clauses.append([-get_var("T", j, last_t-1), -S[j][last_t]])
-    
-    # Original constraints #4 and #5 
-    # #4
-    # for j in range(n):
-    #     clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
+        clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
 
-    # #5
-    # for j in range(n):
-    #     for k in range(c-time_list[j]):
-    #         for h in range(k+1, c-time_list[j]+1):
-    #             clauses.append([-S[j][k], -S[j][h]])
+    #5
+    for j in range(n):
+        for k in range(c-time_list[j]):
+            for h in range(k+1, c-time_list[j]+1):
+                clauses.append([-S[j][k], -S[j][h]])
 
-    # #6
-    # for j in range(n):
-    #     for t in range(c-time_list[j]+1,c):
-    #         if t > c- time_list[j]:
-    #             clauses.append([-S[j][t]])
-    
-    print("4 5 6 constraints (staircase):", len(clauses))
+    #6
+    for j in range(n):
+        for t in range(c-time_list[j]+1,c):
+            if t > c- time_list[j]:
+                clauses.append([-S[j][t]])
+    print("4 5 6 constraints:", len(clauses))
 
     #7
     for i in range(n-1):
@@ -322,31 +267,18 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     #             continue
     #         clauses.append([ -A[j][t], A[j][t+1] , S[j][max(0,t-time_list[j]+1)]])
     
-    # #9
-
-    for i,j in adj:
+    #9
+    for i, j in adj:
         for k in range(m):
             if ip1[i][k] == 1 or ip1[j][k] == 1:
                 continue
-            left_bound = time_list[i] - 1
-            right_bound = c - time_list[j]
-            clauses.append([-X[i][k], -X[j][k], -get_var("T", j, left_bound)])
-            for t in range (left_bound + 1, right_bound):
-                t_i = t - time_list[i]+1
-                clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
-                clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
-    # for i, j in adj:
-    #     for k in range(m):
-    #         if ip1[i][k] == 1 or ip1[j][k] == 1:
-    #             continue
-    #         for t1 in range(c - time_list[i] +1):
-    #             #t1>t2
-    #             for t2 in range(c-time_list[j]+1):
-    #                 if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
-    #                     continue
-    #                 if t1 > t2:
-    #                     clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
+            for t1 in range(c - time_list[i] +1):
+                #t1>t2
+                for t2 in range(c-time_list[j]+1):
+                    if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
+                        continue
+                    if t1 > t2:
+                        clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
     cons = len(clauses)
     print("Constraints:",cons)
 
@@ -409,23 +341,15 @@ def print_solution(solution):
         return None
     else:
         x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
-        a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-        # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
-        cnt = m*n + c*n 
-        s = []
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
+        a = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
         table = [[0 for t in range(c)] for k in range(m)]
         for k in range(m):
             for t in range(c):
                 for j in range(n):
                     if x[j][k] > 0 and a[j][t] > 0 and table[k][t] == 0:
                         for l in range(max(0,t-time_list[j]),t+1):
-                            if l < len(s[j]) and s[j][l] > 0:
+                            if s[j][l] > 0:
                                 table[k][t] = j+1
 
         # Generate HTML content
@@ -483,15 +407,8 @@ def get_value(solution,best_value):
         return 100, []
     else:
         x = [[  solution[j*m+i] for i in range (m)] for j in range(n)]
-        a = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
-        s = []
-        cnt = m*n + c*n
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
+        a = [[  solution[m*n + c*n + j*c + i ] for i in range (c)] for j in range(n)]
         t = 0
         value = 0
 
@@ -501,7 +418,7 @@ def get_value(solution,best_value):
                 if a[j][t] > 0 :
                     # tmp = tmp + W[j]
                     for l in range(max(0,t-time_list[j]),t+1):
-                        if l < len(s[j]) and s[j][l] > 0 :
+                        if s[j][l] > 0:
                             tmp = tmp + W[j]
                             # print(tmp)
                             break
@@ -519,7 +436,7 @@ def get_value(solution,best_value):
                     # tmp = tmp + W[j]
                     # station.append(j+1)
                     for l in range(max(0,t-time_list[j]),t+1):
-                        if l < len(s[j]) and s[j][l] > 0:
+                        if s[j][l] > 0:
                             tmp = tmp + W[j]
                             station.append(j+1)
                             break
@@ -530,7 +447,7 @@ def get_value(solution,best_value):
 
         return value, unique_constraints
 
-def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_count, solbb_count, status, time_taken, filename="staircase4_results3.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_count, solbb_count, status, time_taken, filename="SAML3P_cad_results.csv"):
     with open("Output/" + filename, "a", newline='') as f:
         writer = csv.writer(f)
         row = []
@@ -547,40 +464,8 @@ def write_fancy_table_to_csv(ins, n, m, c, var_count, cons_count, peak, sol_coun
         row.append(str(time_taken))
         writer.writerow(row)
 
-file_name = [
-    ["MERTENS", 6, 6],      #0
-    ["MERTENS", 2, 18],     #1
-    ["BOWMAN", 5, 20],      #2
-    ["JAESCHKE", 8, 6],     #3
-    ["JAESCHKE", 3, 18],    #4
-    ["JACKSON", 8, 7],      #5
-    ["JACKSON", 3, 21],     #6
-    ["MANSOOR", 4, 48],     #7
-    ["MANSOOR", 2, 94],     #8
-    ["MITCHELL", 8, 14],    #9
-    ["MITCHELL", 3, 39],    #10
-    ["ROSZIEG", 10, 14],    #11
-    ["ROSZIEG", 4, 32],     #12
-    ["ROSZIEG", 6, 25],     #13
-    ["HESKIA", 8, 138],     #14
-    ["HESKIA", 3, 342],     #15
-    ["HESKIA", 5, 205],     #16
-    ["BUXEY", 14, 25],      #17
-    ["BUXEY", 7, 47],       #18
-    ["BUXEY", 8, 41],       #19
-    ["BUXEY", 11, 33],      #20
-    ["SAWYER", 14, 25],     #21
-    ["SAWYER", 7, 47],      #22
-    ["SAWYER", 8, 41],      #23
-    ["SAWYER", 12, 30],     #24
-    ["GUNTHER", 14, 40],    #25
-    ["GUNTHER", 9, 54],     #26
-    ["GUNTHER", 9, 61],     #27
-    ["WARNECKE",25, 65]     #28
-    ]
-
 def reset(idx):
-    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, var_map, var_counter
     m = file_name[idx][1]
     c = file_name[idx][2]
     val = 0
@@ -591,7 +476,7 @@ def reset(idx):
     var_counter = 0
     var_map = {}
     filename = file_name[idx][0] + ".IN2"
-    W = [int(line.strip()) for line in open('task_power3/'+file_name[idx][0]+'.txt')]
+    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
     neighbors = [[ 0 for i in range(100)] for j in range(100)]
     reversed_neighbors = [[ 0 for i in range(100)] for j in range(100)]
     visited = [False for i in range(100)]
@@ -599,9 +484,9 @@ def reset(idx):
     clauses = []
     time_list = []
     adj = []
-    forward = [0 for i in range(100)]
 
 def optimal(X,S,A,n,m,c,sol,solbb,start_time):
+    print(n,m,c)
     ip1,ip2 = preprocess(n,m,c,time_list,adj)
 
     # print(ip2[])
@@ -674,10 +559,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
                 solver.add_clause([-A[j-1][t] for j in stations])
                 # print(stations)
 
-
-
 def main():
-    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
+    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, var_map, var_counter
     
     # Create Output directory if it doesn't exist
     import os
@@ -685,8 +568,8 @@ def main():
         os.makedirs("Output")
     
     # Write CSV header only if file doesn't exist
-    if not os.path.exists("Output/staircase4_results3.csv"):
-        with open("Output/staircase4_results3.csv", "w", newline='') as f:
+    if not os.path.exists("Output/SAML3P_cad_results.csv"):
+        with open("Output/SAML3P_cad_results.csv", "w", newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Instance", "n", "m", "c", "Variables", "Constraints", "Peak_Power", "Solutions", "Best_Solutions", "Status", "Time"])
     
@@ -694,10 +577,10 @@ def main():
         print(f"Processing instance {idx + 1}/29: {file_name[idx][0]}")
         reset(idx)
         read_input()
-        X, A, S = generate_variables(n,m,c)
-        val = max(S)
+        X, S, A = generate_variables(n,m,c)
+        val = max(max(row) for row in A)
 
-        var_counter = max(val)
+        var_counter = val
         var_map = {}
 
         sol = 0
