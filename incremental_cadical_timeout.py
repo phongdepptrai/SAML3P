@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime
 
 from numpy import var
-from pysat.solvers import Cadical195 
+from pysat.solvers import Cadical195
 import fileinput
 from tabulate import tabulate
 import webbrowser
@@ -457,7 +457,7 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
     
     # Create date-based folder name
     current_date = datetime.now()
-    date_folder = f"python_file-{current_date.day:02d}-{current_date.month:02d}-{current_date.year}"
+    date_folder = f"{current_date.day:02d}-{current_date.month:02d}-{current_date.year}"
     
     # Create instance-specific folder structure: log/date_folder/instance_name/n_m_c/
     instance_folder = os.path.join("log", date_folder, instance_name, f"{n}_{m}_{c}")
@@ -486,6 +486,40 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
                         if l < len(s[j]) and s[j][l] > 0:
                             table[k][t] = j+1
 
+    # Generate task power list
+    task_power_list = ""
+    for j in range(n):
+        task_power_list += f"task {j+1}: {W[j]}"
+        if j < n-1:
+            task_power_list += ", "
+    
+    # Generate task activity list with time ranges and machine assignments
+    task_activities = []
+    for j in range(n):
+        # Find which machine this task is assigned to
+        assigned_machine = -1
+        for k in range(m):
+            if x[j][k] > 0:
+                assigned_machine = k + 1
+                break
+        
+        if assigned_machine > 0:
+            # Find the start and end times for this task
+            start_time = -1
+            end_time = -1
+            for t in range(c):
+                if a[j][t] > 0:
+                    if start_time == -1:
+                        start_time = t + 1  # Convert to 1-based indexing
+                    end_time = t + 1  # Convert to 1-based indexing
+                elif end_time > 0:
+                    break
+            
+            if start_time > 0 and end_time > 0:
+                task_activities.append(f"task {j+1} [{start_time};{end_time}] in machine {assigned_machine}")
+    
+    task_activities_text = ", ".join(task_activities)
+
     # Generate HTML content
     timestamp = current_date.strftime("%Y-%m-%d %H:%M:%S")
     html_content = f"""
@@ -494,6 +528,10 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
     <head>
         <title>Task Assignment - {instance_name} ({n}_{m}_{c})</title>
         <style>
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -511,7 +549,7 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
             }}
             .info {{
                 margin: 10px 0;
-                font-family: Arial, sans-serif;
+                line-height: 1.6;
             }}
             .best-value {{
                 font-size: 18px;
@@ -523,6 +561,18 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
                 color: #666;
                 margin-bottom: 10px;
             }}
+            .detailed-info {{
+                background-color: #f9f9f9;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 15px 0;
+                border-left: 4px solid #2e7d32;
+            }}
+            .section-title {{
+                font-weight: bold;
+                color: #1976d2;
+                margin-top: 10px;
+            }}
         </style>
     </head>
     <body>
@@ -530,13 +580,26 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
         <div class="folder-path">
             <strong>Folder Structure:</strong> log/{date_folder}/{instance_name}/{n}_{m}_{c}/
         </div>
+        
+        <div class="detailed-info">
+            <div class="section-title">Instance Details:</div>
+            {instance_name}<br>
+            n = {n}, m = {m}, c = {c}<br>
+            
+            <div class="section-title">Task Power Values:</div>
+            {task_power_list}<br>
+            
+            <div class="section-title">Task Activities:</div>
+            {task_activities_text}<br>
+        </div>
+        
         <div class="info">
-            <p><strong>Instance:</strong> {instance_name}</p>
-            <p><strong>Configuration:</strong> n={n}, m={m}, c={c}</p>
             <p><strong>Timestamp:</strong> {timestamp}</p>
             <p><strong>Status:</strong> {status}</p>
             <p class="best-value">Best Value: {best_value}</p>
         </div>
+        
+        <h3>Task Assignment Table</h3>
         <table>
             <tr>
                 <th>Machine</th>
@@ -554,14 +617,14 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
     </html>
     """
 
-    # Save HTML file
-    html_filename = f"{instance_name}_bestvalue_{best_value}_{status}_{current_date.strftime('%H%M%S')}.html"
+    # Save HTML file (without hour in filename, will replace if exists)
+    html_filename = f"{instance_name}_bestvalue_{best_value}_{status}.html"
     html_filepath = os.path.join(instance_folder, html_filename)
     
     with open(html_filepath, "w") as file:
         file.write(html_content)
     
-    # Also save raw solution data as JSON
+    # Also save raw solution data as JSON (without hour in filename, will replace if exists)
     solution_data = {
         'instance': instance_name,
         'configuration': f"{n}_{m}_{c}",
@@ -576,7 +639,7 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
         's_variables': s
     }
     
-    json_filename = f"{instance_name}_bestvalue_{best_value}_{status}_{current_date.strftime('%H%M%S')}.json"
+    json_filename = f"{instance_name}_bestvalue_{best_value}_{status}.json"
     json_filepath = os.path.join(instance_folder, json_filename)
     
     with open(json_filepath, "w") as file:
@@ -737,7 +800,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         return 0, var_counter, clauses, [], "TIMEOUT"
 
     # Use timeout for initial solve
-    model = solve_with_timeout(solver, min(int(remaining_time), 3600))
+    model = solve(solver)
     if model is None:
         print("Initial solve timed out or no solution")
         return 0, var_counter, clauses, [], "TIMEOUT"
@@ -773,8 +836,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
             
         # Use timeout for each iterative solve
-        model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
-
+        # model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
+        model = solve(solver1)
         if model is None:
             print("No solution found maxsat or timeout.")
             # Save solution before returning
@@ -788,10 +851,10 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         print("best value:", bestValue, end="\r")
         idx = bestValue - lowval - 1
         solver1.add_clause([-U[idx-1]])
-        for i in range (idx, pre_idx):
-            if pre_idx > 0:
-                solver1.add_clause([-U[i]])
-        pre_idx = idx
+        # for i in range (idx, pre_idx):
+        #     if pre_idx > 0:
+        #         solver1.add_clause([-U[i]])
+        # pre_idx = idx
         
 def get_value2(n, m, c, model, W, UB = 0):
     ans_map = [[0 for _ in range(c)] for _ in range(m + 1)]
@@ -1193,15 +1256,7 @@ if __name__ == "__main__":
         csv_file = 'Output/Incremental_cadical_all_time.csv'
         
         completed_instances = []
-        if os.path.exists(csv_file):
-            try:
-                with open(csv_file, 'r') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        if row and len(row) > 0:
-                            completed_instances.append(row[0])  # First column is instance name
-            except:
-                completed_instances = []
+
         
         # Set timeout (1 hour = 3600s)
         TIMEOUT = 3600

@@ -30,7 +30,7 @@ filename = file[3]
 
 fileName = filename.split(".")
 
-with open('task_power3/'+fileName[0]+'.txt', 'r') as file:
+with open('task_power/'+fileName[0]+'.txt', 'r') as file:
     W = [int(line.strip()) for line in file]
 
 neighbors = [[ 0 for i in range(n)] for j in range(n)]
@@ -372,33 +372,6 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     print("12 constraints:", len(clauses))
     return clauses
 
-class TimeoutException(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutException("Solver timeout")
-
-def solve_with_timeout(solver, timeout_seconds):
-    try:
-        # Ensure timeout_seconds is an integer for signal.alarm()
-        timeout_int = max(1, int(timeout_seconds))
-        
-        # Set up timeout signal
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_int)
-        
-        # Try to solve
-        result = solve(solver)
-        
-        # Cancel timeout if we finish early
-        signal.alarm(0)
-        return result
-        
-    except TimeoutException:
-        signal.alarm(0)  # Cancel timeout
-        print(f"Solver timed out after {timeout_int} seconds")
-        return None
-
 def solve(solver):
     if solver.solve():
         model = solver.get_model()
@@ -554,7 +527,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         return 0, var_counter, clauses, [], "TIMEOUT"
 
     # Use timeout for initial solve
-    model = solve_with_timeout(solver, min(int(remaining_time), 3600))
+    # model = solve_with_timeout(solver, min(int(remaining_time), 3600))
+    model = solve(solver)
     if model is None:
         print("Initial solve timed out or no solution")
         return 0, var_counter, clauses, [], "TIMEOUT"
@@ -584,8 +558,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
             
         # Use timeout for each iterative solve
-        model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
-
+        # model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
+        model = solve(solver1)
         if model is None:
             print("No solution found maxsat or timeout.")
             return bestValue, var, clauses, soft_clauses, "Optimal"
@@ -824,7 +798,7 @@ def reset(idx):
     var_counter = 0
     var_map = {}
     filename = file_name[idx][0] + ".IN2"
-    W = [int(line.strip()) for line in open('task_power3/'+file_name[idx][0]+'.txt')]
+    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
     neighbors = [[ 0 for i in range(100)] for j in range(100)]
     reversed_neighbors = [[ 0 for i in range(100)] for j in range(100)]
     visited = [False for i in range(100)]
@@ -837,7 +811,7 @@ def reset(idx):
 
 def main():
     global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter
-    for idx in range(0,29):
+    for idx in range(15,17):
         reset(idx)
         read_input()
         X, A, S = generate_variables(n,m,c)
