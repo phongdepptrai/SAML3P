@@ -1062,7 +1062,7 @@ file_name1 = [
     ["SAWYER", 12, 30],     # 50
     ["SAWYER", 13, 27],     # 51
     ["SAWYER", 11, 33],     # 52
-    ["SAWYER", 10, 36],     # 53
+    ["SAWYER", 10, 36],     # 53 ???
     ["SAWYER", 7, 54],      # 54
     ["SAWYER", 5, 75],      # 55
     # Hard/SAWYER count: 9
@@ -1081,7 +1081,7 @@ file_name1 = [
     ["WARNECKE", 25, 65],   # 64
     ["WARNECKE", 31, 54],   # 65
     ["WARNECKE", 29, 56],   # 66
-    ["WARNECKE", 29, 58],   # 67
+    ["WARNECKE", 29, 58],   # 67 
     ["WARNECKE", 27, 60],   # 68
     ["WARNECKE", 27, 62],   # 69
     ["WARNECKE", 24, 68],   # 70
@@ -1097,17 +1097,17 @@ file_name1 = [
     # Hard/WARNECKE count: 16
 
     # Lutz2
-    ["Lutz2", 49, 11],      # 80
-    ["Lutz2", 44, 12],      # 81
-    ["Lutz2", 40, 13],      # 82
-    ["Lutz2", 37, 14],      # 83
-    ["Lutz2", 34, 15],      # 84
-    ["Lutz2", 31, 16],      # 85
-    ["Lutz2", 29, 17],      # 86
-    ["Lutz2", 28, 18],      # 87
-    ["Lutz2", 26, 19],      # 88
-    ["Lutz2", 25, 20],      # 89
-    ["Lutz2", 24, 21],      # 90
+    ["LUTZ2", 49, 11],      # 80
+    ["LUTZ2", 44, 12],      # 81
+    ["LUTZ2", 40, 13],      # 82
+    ["LUTZ2", 37, 14],      # 83
+    ["LUTZ2", 34, 15],      # 84
+    ["LUTZ2", 31, 16],      # 85
+    ["LUTZ2", 29, 17],      # 86
+    ["LUTZ2", 28, 18],      # 87
+    ["LUTZ2", 26, 19],      # 88
+    ["LUTZ2", 25, 20],      # 89
+    ["LUTZ2", 24, 21],      # 90
     # Hard/Lutz2 count: 11
 
     # Hard families total count: 50
@@ -1259,15 +1259,15 @@ if __name__ == "__main__":
 
         
         # Set timeout (1 hour = 3600s)
-        TIMEOUT = 3600
+        TIMEOUT = 3601
         
         print(f"Running {len(file_name1)} instances with {TIMEOUT}s timeout each")
         
         # Run all instances with runlim
-        for instance_id in range(len(file_name1)):
+        # Here
+        for instance_id in range(66, len(file_name1)):
             instance_name = file_name1[instance_id][0]
             
-                
             print(f"\n{'=' * 50}")
             print(f"Running instance {instance_id}: {instance_name} (m={file_name1[instance_id][1]}, c={file_name1[instance_id][2]})")
             print(f"{'=' * 50}")
