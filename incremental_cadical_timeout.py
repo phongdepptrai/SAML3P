@@ -907,6 +907,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
         for clause in pb_clauses.clauses:
             clauses.append(clause)
             solver.add_clause(clause)
+            
 
     return clauses, soft_clauses, var, U, solver
 def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="Incremental_cadical_all_time.csv"):
