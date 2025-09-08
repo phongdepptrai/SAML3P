@@ -15,7 +15,7 @@ import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-from pysat.pb import PBEnc
+from pysat.pb import PBEnc, EncType
 import csv
 # input variables in database ?? mertens 1
 n = 25
@@ -898,7 +898,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
             weight.append(W[i])
         pb_clauses = PBEnc.leq( lits=variables, weights=weight, 
                                 bound=UB, 
-                                top_id=var)
+                                top_id=var, encoding=EncType.binmerge)
         # Update variable counter for any new variables created by PBEnc
         if pb_clauses.nv > var:
             var = pb_clauses.nv + 1
@@ -910,7 +910,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
             
 
     return clauses, soft_clauses, var, U, solver
-def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="Incremental_cadical_all_time.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="incremental_binary_merger.csv"):
     global best_result
     
     # Create result dictionary
@@ -1208,11 +1208,11 @@ if __name__ == "__main__":
     # Help message
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help', 'help']:
         print("Usage:")
-        print("  python3 incremental_cadical_timeout.py              # Run all instances with runlim")
-        print("  python3 incremental_cadical_timeout.py <id>         # Run single instance by ID")
-        print("  python3 incremental_cadical_timeout.py easy         # Run only easy instances (0-38)")
-        print("  python3 incremental_cadical_timeout.py hard         # Run only hard instances (39+)")
-        print("  python3 incremental_cadical_timeout.py all          # Run all instances")
+        print("  python3 incremental_binary_merger.py              # Run all instances with runlim")
+        print("  python3 incremental_binary_merger.py <id>         # Run single instance by ID")
+        print("  python3 incremental_binary_merger.py easy         # Run only easy instances (0-38)")
+        print("  python3 incremental_binary_merger.py hard         # Run only hard instances (39+)")
+        print("  python3 incremental_binary_merger.py all          # Run all instances")
         print("")
         print(f"Available instances: {len(file_name1)} total")
         print("Easy instances: 0-38 (39 instances)")
@@ -1253,8 +1253,8 @@ if __name__ == "__main__":
             os.makedirs('Output')
         
         # Read existing Excel file to check completed instances
-        excel_file = 'Output/Incremental_cadical_all_time.xlsx'
-        csv_file = 'Output/Incremental_cadical_all_time.csv'
+        excel_file = 'Output/incremental_binary_merger.xlsx'
+        csv_file = 'Output/incremental_binary_merger.csv'
         
         completed_instances = []
 
@@ -1266,7 +1266,7 @@ if __name__ == "__main__":
         
         # Run all instances with runlim
         # Here
-        for instance_id in range(66, len(file_name1)):
+        for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
             
             print(f"\n{'=' * 50}")
@@ -1280,7 +1280,7 @@ if __name__ == "__main__":
                     os.remove(temp_file)
             
             # Run instance with timeout
-            command = f"./runlim -r {TIMEOUT} python3 incremental_cadical_timeout.py {instance_id}"
+            command = f"./runlim -r {TIMEOUT} python3 incremental_binary_merger.py {instance_id}"
             
             try:
                 process = subprocess.Popen(command, shell=True)

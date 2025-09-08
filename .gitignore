@@ -165,3 +165,8 @@ Thumbs.db
 *.tmp
 *.temp
 *.bak
+
+# Logs
+log/
+
+*.tex
