@@ -12,7 +12,7 @@ import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-from pysat.pb import PBEnc
+from pysat.pb import PBEnc, EncType
 
 # input variables in database ?? mertens 1
 n = 58 #58
@@ -592,7 +592,7 @@ def reset(idx):
     var_counter = 0
     var_map = {}
     filename = file_name[idx][0] + ".IN2"
-    W = [int(line.strip()) for line in open('task_power/'+file_name[idx][0]+'.txt')]
+    W = [int(line.strip()) for line in open('official_task_power/'+file_name[idx][0]+'.txt')]
     neighbors = [[ 0 for i in range(100)] for j in range(100)]
     reversed_neighbors = [[ 0 for i in range(100)] for j in range(100)]
     visited = [False for i in range(100)]
@@ -638,7 +638,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         for j in range(n):
             lits.append(A[j][t])
             coeffs.append(W[j])
-        pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id = var_counter)
+        pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id = var_counter, encoding = EncType.binmerge)
         if pb_enc.nv > var_counter:
             var_counter = pb_enc.nv + 1
         for clause in pb_enc.clauses:
@@ -671,7 +671,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             solbb = sol
             bestSolution = model
             bestValue = value
-            print("new value:",bestValue, end = "\r")
+            print("new value:",bestValue)
             # print("new station:",station)
 
         for t in range(c):
@@ -680,7 +680,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             for j in range(n):
                 lits.append(A[j][t])
                 coeffs.append(W[j])
-            pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id= var_counter + 1)
+            pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id= var_counter + 1, encoding = EncType.binmerge)
             if pb_enc.nv > var_counter:
                 var_counter = pb_enc.nv + 1
             for clause in pb_enc.clauses:
@@ -700,7 +700,7 @@ def main():
             writer = csv.writer(f)
             writer.writerow(["Instance", "n", "m", "c", "Variables", "Constraints", "Peak_Power", "Solutions", "Best_Solutions", "Status", "Time"])
     
-    for idx in range(28, 29):
+    for idx in range(0, 29):
         print(f"Processing instance {idx + 1}/29: {file_name[idx][0]}")
         reset(idx)
         read_input()
