@@ -113,14 +113,15 @@ def read_input():
 def generate_variables(n,m,c):
     x = [[j*m+i+1 for i in range (m)] for j in range(n)]
     a = [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)]
-    s = []
-    cnt = m*n + c*n + 1
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(cnt)
-            cnt = cnt + 1
-        s.append(tmp)
+    # s = []
+    # cnt = m*n + c*n + 1
+    # for j in range(n):
+    #     tmp = []
+    #     for i in range(c - time_list[j] + 1):
+    #         tmp.append(cnt)
+    #         cnt = cnt + 1
+    #     s.append(tmp)
+    s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
     return x, a, s
 
 def dfs(v):
@@ -223,106 +224,48 @@ def set_var(var, name, *args):
 def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
-    global clauses
-    global var_map
-    global var_counter
-    #staircase constraints
-    for j in range(n):
-        
-        set_var(X[j][0], "R", j, 0)
-        for k in range(1,m-1):
+    # 1
+    for j in range (0, n):
+        constraint = []
+        for k in range (0, m):
             if ip1[j][k] == 1:
-                set_var(get_var("R", j, k-1), "R", j, k)
-            else:
-                clauses.append([-get_var("R", j, k-1), get_var("R", j, k)])
-                clauses.append([-X[j][k], get_var("R", j, k)])
-                clauses.append([-X[j][k], -get_var("R", j, k-1)])
-                clauses.append([X[j][k], get_var("R", j, k-1), -get_var("R", j, k)])
-        # last machine
-        if ip1[j][m-1] == 1:
-            clauses.append([get_var("R", j, m-2)])
-        else:
-            clauses.append([get_var("R", j, m-2), X[j][m-1]])
-            clauses.append([-get_var("R", j, m-2), -X[j][m-1]])
-        
-
-    for (i,j) in adj:
-        for k in range(m-1):
-            if ip1[i][k+1] == 1:
                 continue
-            clauses.append([-get_var("R", j, k), -X[i][k+1]])
-    # # 1
-    # for j in range (0, n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     constraint = []
-    #     for k in range (0, m):
-    #         if ip1[j][k] == 1:
-    #             continue
-    #         constraint.append(X[j][k])
-    #     clauses.append(constraint)
-    # # 2 
-    # for j in range(0,n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     for k1 in range (0,m-1):
-    #         for k2 in range(k1+1,m):
-    #             if ip1[j][k1] == 1 or ip1[j][k2] == 1:
-    #                 continue
-    #             clauses.append([-X[j][k1], -X[j][k2]])
+            constraint.append(X[j][k])
+        clauses.append(constraint)
+    # 2 
+    for j in range(0,n):
+        for k1 in range (0,m-1):
+            for k2 in range(k1+1,m):
+                if ip1[j][k1] == 1 or ip1[j][k2] == 1:
+                    continue
+                clauses.append([-X[j][k1], -X[j][k2]])
 
-    # #3
-    # for a,b in adj:
-    #     for k in range (0, m-1):
-    #         for h in range(k+1, m):
-    #             if ip1[b][k] == 1 or ip1[a][h] == 1:
-    #                 continue
-    #             clauses.append([-X[b][k], -X[a][h]])
+    #3
+    for a,b in adj:
+        for k in range (0, m-1):
+            for h in range(k+1, m):
+                if ip1[b][k] == 1 or ip1[a][h] == 1:
+                    continue
+                clauses.append([-X[b][k], -X[a][h]])
+    print("first 3 constraints:", len(clauses))
 
+    #4
 
-    print("first 3 constraints (staircase):", len(clauses))
-
-    # T[j][t] represents "task j starts at time t or earlier"
     for j in range(n):
-        last_t = c-time_list[j]
-        
-        # Special case: Full cycle tasks (only one feasible start time: t=0)
-        if last_t == 0:
-            # Force the task to start at t=0 (equivalent to original constraint #4)
-            clauses.append([S[j][0]])
-        else:
-            # First time slot
-            set_var(S[j][0], "T", j, 0)
-            
-            # Intermediate time slots
-            for t in range(1, last_t):
-                clauses.append([-get_var("T", j, t-1), get_var("T", j, t)]) # T[j][t-1] -> T[j][t]
-                clauses.append([-S[j][t], get_var("T", j, t)]) # S[j][t] -> T[j][t]
-                clauses.append([-S[j][t], -get_var("T", j, t-1)]) # S[j][t] -> ¬T[j][t-1]
-                clauses.append([S[j][t], get_var("T", j, t-1), -get_var("T", j, t)]) # T[j][t] -> (T[j][t-1] ∨ S[j][t])
-            
-            # Last time slot (ensures at least one start time)
-            clauses.append([get_var("T", j, last_t-1), S[j][last_t]])
-            clauses.append([-get_var("T", j, last_t-1), -S[j][last_t]])
-    
-    # Original constraints #4 and #5 
-    # #4
-    # for j in range(n):
-    #     clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
+        clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
 
-    # #5
-    # for j in range(n):
-    #     for k in range(c-time_list[j]):
-    #         for h in range(k+1, c-time_list[j]+1):
-    #             clauses.append([-S[j][k], -S[j][h]])
+    #5
+    for j in range(n):
+        for k in range(c-time_list[j]):
+            for h in range(k+1, c-time_list[j]+1):
+                clauses.append([-S[j][k], -S[j][h]])
 
-    # #6
-    # for j in range(n):
-    #     for t in range(c-time_list[j]+1,c):
-    #         if t > c- time_list[j]:
-    #             clauses.append([-S[j][t]])
-    
-    print("4 5 6 constraints (staircase):", len(clauses))
+    #6
+    for j in range(n):
+        for t in range(c-time_list[j]+1,c):
+            if t > c- time_list[j]:
+                clauses.append([-S[j][t]])
+    print("4 5 6 constraints:", len(clauses))
 
     #7
     for i in range(n-1):
@@ -365,31 +308,18 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     #             continue
     #         clauses.append([ -A[j][t], A[j][t+1] , S[j][max(0,t-time_list[j]+1)]])
     
-    # #9
-
-    for i,j in adj:
+    #9
+    for i, j in adj:
         for k in range(m):
             if ip1[i][k] == 1 or ip1[j][k] == 1:
                 continue
-            left_bound = time_list[i] - 1
-            right_bound = c - time_list[j]
-            clauses.append([-X[i][k], -X[j][k], -get_var("T", j, left_bound)])
-            for t in range (left_bound + 1, right_bound):
-                t_i = t - time_list[i]+1
-                clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
-                clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
-    # for i, j in adj:
-    #     for k in range(m):
-    #         if ip1[i][k] == 1 or ip1[j][k] == 1:
-    #             continue
-    #         for t1 in range(c - time_list[i] +1):
-    #             #t1>t2
-    #             for t2 in range(c-time_list[j]+1):
-    #                 if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
-    #                     continue
-    #                 if t1 > t2:
-    #                     clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
+            for t1 in range(c - time_list[i] +1):
+                #t1>t2
+                for t2 in range(c-time_list[j]+1):
+                    if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
+                        continue
+                    if t1 > t2:
+                        clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
     cons = len(clauses)
     print("Constraints:",cons)
 
@@ -467,15 +397,15 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
     # Generate solution data
     x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
     a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-    cnt = m*n + c*n 
-    s = []
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(solution[cnt])
-            cnt += 1
-        s.append(tmp)
-    
+    # cnt = m*n + c*n 
+    # s = []
+    # for j in range(n):
+    #     tmp = []
+    #     for i in range(c - time_list[j] + 1):
+    #         tmp.append(solution[cnt])
+    #         cnt += 1
+    #     s.append(tmp)
+    s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
     table = [[0 for t in range(c)] for k in range(m)]
     for k in range(m):
         for t in range(c):
@@ -657,15 +587,15 @@ def print_solution(solution):
     else:
         x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
         a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-        # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
+        s = [[solution[m*n + c*n + j*c + i + 1] for i in range(c)] for j in range(n)]
         cnt = m*n + c*n 
-        s = []
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        # s = []
+        # for j in range(n):
+        #     tmp = []
+        #     for i in range(c - time_list[j] + 1):
+        #         tmp.append(solution[cnt])
+        #         cnt += 1
+        #     s.append(tmp)
         table = [[0 for t in range(c)] for k in range(m)]
         for k in range(m):
             for t in range(c):
@@ -731,14 +661,14 @@ def get_value(solution,best_value):
     else:
         x = [[  solution[j*m+i] for i in range (m)] for j in range(n)]
         a = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
-        s = []
-        cnt = m*n + c*n
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
+        # cnt = m*n + c*n
+        # for j in range(n):
+        #     tmp = []
+        #     for i in range(c - time_list[j] + 1):
+        #         tmp.append(solution[cnt])
+        #         cnt += 1
+        #     s.append(tmp)
         t = 0
         value = 0
         lowval = 0
@@ -1265,7 +1195,7 @@ if __name__ == "__main__":
         
         # Run all instances with runlim
         # Here
-        for instance_id in range(73, len(file_name1)):
+        for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
             
             print(f"\n{'=' * 50}")
