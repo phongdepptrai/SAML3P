@@ -170,3 +170,7 @@ Thumbs.db
 log/
 
 *.tex
+
+*.json
+
+Output/*
