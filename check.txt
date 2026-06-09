@@ -1,0 +1,24 @@
+
+## Recommended: start inside a named screen session (detached) and capture the Python PID
+# This starts a detached screen that runs a bash shell which backgrounds the python process
+screen -S incremental_sm -dm bash -c '.venv/bin/python incremental_cadical_SM.py > Output/incremental_SM_run.log 2>&1 & echo $! > incremental_cadical_SM.pid'
+
+## Useful screen commands
+# Attach to the session:
+screen -r incremental_sm
+# Detach from the session (inside screen): Ctrl-A d
+# List screen sessions:
+screen -ls
+# Kill the screen session (and its children):
+screen -S incremental_sm -X quit
+
+## Log and pid helpers
+# Tail the live log:
+tail -f Output/incremental_SM_run.log
+# Stop by pid (if the pidfile exists):
+kill $(cat incremental_cadical_SM.pid) && rm -f incremental_cadical_SM.pid
+
+## Notes:
+# - The -dm variant starts screen detached. The inner bash -c backgrounds Python and writes the PID to the pidfile.
+# - Use `screen -r incremental_sm` to view the running session interactively.
+
