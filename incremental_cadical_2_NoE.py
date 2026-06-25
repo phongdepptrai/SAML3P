@@ -46,7 +46,7 @@ def save_best_result_snapshot(result=None):
         json.dump(best_result, f)
 
 
-def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
+def upsert_result_csv(result, filename="Output/incremental_No_E.csv"):
     fieldnames = ["Instance", "n", "m", "c", "variables", "soft", "Constraints", "Peak", "Status", "Time"]
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     problem_key = (
@@ -197,9 +197,6 @@ def read_input():
                     else:
                         break
                 cnt = cnt + 1
-    for i in range(n):
-        
-        delv(i, temp)
     print(len(adj))
 
 
@@ -1069,7 +1066,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
             
 
     return clauses, soft_clauses, var, U, solver
-def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="incremental_No_SM.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="incremental_No_E.csv"):
     global best_result
     
     # Create result dictionary
@@ -1144,7 +1141,6 @@ file_name1 = [
     ["JAESCHKE", 7, 7],    # 8
     ["JAESCHKE", 6, 8],     # 9
     ["JAESCHKE", 4, 10],    # 10
-    ["JAESCHKE", 3, 18],    # 11
     # Easy/JAESCHKE count: 5
 
     # JACKSON
@@ -1422,23 +1418,12 @@ if __name__ == "__main__":
         if not os.path.exists('Output'):
             os.makedirs('Output')
         
-        # Read existing CSV file to check completed instances
+        # Read existing Excel file to check completed instances
         excel_file = 'Output/incremental_No_SM.xlsx'
-        csv_file = 'Output/incremental_No_SM.csv'
+        csv_file = 'Output/incremental_No_E.csv'
         
-        completed_instances = set()
-        if os.path.exists(csv_file):
-            try:
-                with open(csv_file, 'r', newline='') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        inst = row.get("Instance")
-                        m_val = row.get("m")
-                        c_val = row.get("c")
-                        if inst and m_val and c_val:
-                            completed_instances.add((inst.strip().upper(), int(m_val), int(c_val)))
-            except Exception as e:
-                print(f"Error reading completed instances from {csv_file}: {e}")
+        completed_instances = []
+
         
         # Set timeout (1 hour = 3600s)
         TIMEOUT = 3601
@@ -1449,13 +1434,6 @@ if __name__ == "__main__":
         # Here
         for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
-            m_val = file_name1[instance_id][1]
-            c_val = file_name1[instance_id][2]
-            
-            # Skip if already completed
-            if (instance_name.strip().upper(), m_val, c_val) in completed_instances:
-                print(f"Skipping already completed instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
-                continue
             
             print(f"\n{'=' * 50}")
             print(f"Running instance {instance_id}: {instance_name} (m={file_name1[instance_id][1]}, c={file_name1[instance_id][2]})")
@@ -1468,7 +1446,7 @@ if __name__ == "__main__":
                     os.remove(temp_file)
             
             # Run instance with timeout
-            command = f"./runlim -r {TIMEOUT} {sys.executable} incremental_cadical_2.py {instance_id}"
+            command = f"./runlim -r {TIMEOUT} {sys.executable} incremental_cadical_2_NoE.py {instance_id}"
             
             try:
                 process = subprocess.Popen(command, shell=True)

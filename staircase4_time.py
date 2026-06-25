@@ -33,6 +33,90 @@ best_result = None
 current_instance_id = 0
 start_time_global = 0
 
+def save_best_result_snapshot(result=None):
+    global best_result
+
+    if result is not None:
+        best_result = result
+
+    if not best_result:
+        return
+
+    with open(f'results_incremental_cadical_{current_instance_id}.json', 'w') as f:
+        json.dump(best_result, f)
+
+
+def upsert_result_csv(result, filename="Output/cb.csv"):
+    fieldnames = ["Instance", "n", "m", "c", "variables", "soft", "Constraints", "Peak", "Status", "Time"]
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    problem_key = (
+        str(result.get("Instance", "Unknown")),
+        str(result.get("n", "")),
+        str(result.get("m", "")),
+        str(result.get("c", "")),
+    )
+
+    rows = []
+    if os.path.exists(filename):
+        with open(filename, "r", newline="") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row or row[0] == "Instance":
+                    continue
+                if len(row) >= 4:
+                    row_key = (str(row[0]), str(row[1]), str(row[2]), str(row[3]))
+                    if row_key == problem_key:
+                        continue
+                row_dict = {}
+                for idx, field in enumerate(fieldnames):
+                    if idx < len(row):
+                        row_dict[field] = row[idx]
+                    else:
+                        row_dict[field] = ""
+                rows.append(row_dict)
+
+    new_row = {
+        "Instance": result.get("Instance", "Unknown"),
+        "n": result.get("n", ""),
+        "m": result.get("m", ""),
+        "c": result.get("c", ""),
+        "variables": result.get("Variables", ""),
+        "soft": result.get("SoftClauses", ""),
+        "Constraints": result.get("HardClauses", ""),
+        "Peak": result.get("OptimalValue", ""),
+        "Status": result.get("Status", "RUNNING"),
+        "Time": result.get("Runtime", ""),
+    }
+    rows.append(new_row)
+
+    tmp_filename = f"{filename}.tmp"
+    with open(tmp_filename, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    os.replace(tmp_filename, filename)
+
+def update_best_result(instance_name, n, m, c, variables, soft_clauses, hard_clauses, peak, status, runtime):
+    global best_result
+
+    best_result = {
+        'Instance': instance_name,
+        'n': n,
+        'm': m,
+        'c': c,
+        'Variables': variables,
+        'SoftClauses': soft_clauses,
+        'HardClauses': hard_clauses,
+        'OptimalValue': peak,
+        'Status': status,
+        'Runtime': runtime,
+    }
+
+    save_best_result_snapshot(best_result)
+    upsert_result_csv(best_result)
+
+
 # Signal handler for graceful interruption
 def handle_interrupt(signum, frame):
     print(f"\nReceived interrupt signal {signum}. Saving current best solution.")
@@ -84,6 +168,7 @@ visited = [False for i in range(n)]
 toposort = []
 clauses = []
 time_list = []
+ran = []
 adj = []
 forward = [0 for i in range(n)]
 var_map = {}
@@ -92,24 +177,53 @@ var_counter = 0
 
 def read_input():
     cnt = 0
-    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
+    global n, adj, neighbors, reversed_neighbors, filename, time_list, forward, ran
+    temp = []
+    ran = []
     with open('presedent_graph/' + filename, 'r') as f:
         for line in f:
             line = line.strip()
             if line:
                 if cnt == 0:
                     n = int(line)
+                    for i in range(n):
+                        temp.append([])
+                        ran.append(0)
                 elif cnt <= n: # type: ignore
                     time_list.append(int(line))
                 else:
                     line = line.split(",")
                     if(line[0] != "-1" and line[1] != "-1"):
-                        adj.append([int(line[0])-1, int(line[1])-1])
-                        neighbors[int(line[0])-1][int(line[1])-1] = 1
-                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
+                        a, b = int(line[0]) - 1, int(line[1]) - 1
+                        adj.append([a, b])
+                        neighbors[a][b] = 1
+                        reversed_neighbors[b][a] = 1
+                        temp[a].append(b)
                     else:
                         break
                 cnt = cnt + 1
+    for i in range(n):
+        delv(i, temp)
+    print(len(adj))
+
+
+def delv(i, temp):
+    global adj, neighbors, reversed_neighbors, ran
+    if len(temp[i]) == 0:
+        return []
+    if ran[i] == 1:
+        return temp[i]
+    for j in temp[i]:
+        con = delv(j, temp)
+        if con:
+            for k in con:
+                if [i, k] not in adj:
+                    adj.append([i, k])
+                    neighbors[i][k] = 1
+                    reversed_neighbors[k][i] = 1
+                    temp[i].append(k)
+    ran[i] = 1
+    return temp[i]
 
 
 def generate_variables(n,m,c):
@@ -787,6 +901,7 @@ def get_value(solution,best_value):
 
 def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     global var_counter, var_map
+    instance_name = filename.split(".")[0] if filename else "Unknown"
     ip1,ip2 = preprocess(n,m,c,time_list,adj)
 
     # print(ip2[])
@@ -801,6 +916,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     model = solve(solver,start_time = start_time)
     if model is None:
         print("No solution found.")
+        update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), 0, "first cancelled", time.time() - start_time)
         return 0, var_counter, clauses, "first cancelled"
     bestSolution = model 
     infinity = 1000000
@@ -809,6 +925,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     bestValue,lowval, station = result
     print("initial value:",bestValue)
     print("initial station:",station)
+    update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
+    
     # for t in range(c):
     #     for stations in station:
             
@@ -837,6 +955,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         model = solve(solver,start_time)
         if model is None:
             # print(bestSolution)
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
             return bestValue, var_counter, clauses, "Optimal"
         # solver = Cadical195()
         # for clause in clauses:
@@ -845,7 +964,8 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         current_time = time.time()
         if current_time - start_time >= 3600:
             print("time out")
-            return bestSolution, sol, solbb, bestValue
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
+            return bestValue, var_counter, clauses, "TIMEOUT"
         # print(f"Time taken: {end_time - start_time} seconds")
         
         value,lowval, station = get_value(model, bestValue)
@@ -857,6 +977,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             bestValue = value
             print("new value:",bestValue)
             # print("new station:",station)
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
 
         # for t in range(c):
         #     lits = []  
@@ -874,7 +995,7 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
             for stations in station:
                 solver.add_clause([-A[j-1][t] for j in stations])
 
-def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="staicase_time.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="cb.csv"):
     global best_result
     
     # Create result dictionary
@@ -894,21 +1015,8 @@ def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, ti
     # Update best result
     best_result = result.copy()
     
-    # Write to CSV
-    with open("Output/" + filename, "a", newline='') as f:
-        writer = csv.writer(f)
-        row = []
-        row.append(ins)
-        row.append(str(n))
-        row.append(str(m))
-        row.append(str(c))
-        row.append(str(val))
-        row.append(str(s_cons))
-        row.append(str(h_cons))
-        row.append(str(peak))
-        row.append(status)
-        row.append(str(time_elapsed))
-        writer.writerow(row)
+    # Write or replace row in CSV
+    upsert_result_csv(result, filename="Output/" + filename)
 
 file_name1 = [
     # Easy families 
@@ -927,7 +1035,7 @@ file_name1 = [
 
     # JAESCHKE
     ["JAESCHKE", 8, 6],     # 7
-    ["JAESCHKE", 3, 18],    # 8
+    ["JAESCHKE", 7, 7],    # 8
     ["JAESCHKE", 6, 8],     # 9
     ["JAESCHKE", 4, 10],    # 10
     ["JAESCHKE", 3, 18],    # 11
@@ -1100,9 +1208,9 @@ def run_single_instance(instance_id):
     write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, 0, len(clauses), solval, status, end_time - start_time)
     
     # Save JSON result for controller
-    # if best_result:
-    #     with open(f'results_incremental_cadical_{instance_id}.json', 'w') as f:
-    #         json.dump(best_result, f)
+    if best_result:
+        with open(f'results_incremental_cadical_{instance_id}.json', 'w') as f:
+            json.dump(best_result, f)
     
     print(f"Instance {instance_id} completed - Runtime: {end_time - start_time:.2f}s, Status: {status}")
 
@@ -1110,19 +1218,19 @@ if __name__ == "__main__":
     # Help message
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help', 'help']:
         print("Usage:")
-        print("  python3 incremental_cadical_timeout.py              # Run all instances with runlim")
-        print("  python3 incremental_cadical_timeout.py <id>         # Run single instance by ID")
-        print("  python3 incremental_cadical_timeout.py easy         # Run only easy instances (0-38)")
-        print("  python3 incremental_cadical_timeout.py hard         # Run only hard instances (39+)")
-        print("  python3 incremental_cadical_timeout.py all          # Run all instances")
+        print("  python3 staircase4_time.py              # Run all instances with runlim")
+        print("  python3 staircase4_time.py <id>         # Run single instance by ID")
+        print("  python3 staircase4_time.py easy         # Run only easy instances (0-38)")
+        print("  python3 staircase4_time.py hard         # Run only hard instances (39+)")
+        print("  python3 staircase4_time.py all          # Run all instances")
         print("")
         print(f"Available instances: {len(file_name1)} total")
         print("Easy instances: 0-38 (39 instances)")
         print("Hard instances: 39+ (remaining instances)")
         print("")
         print("Files created:")
-        print("  Output/staicase_time.csv   # CSV results")
-        print("  Output/Incremental_cadical_all.xlsx  # Excel results")
+        print("  Output/cb.csv   # CSV results")
+        print("  Output/pb_all_time.xlsx  # Excel results")
         print("  results_incremental_cadical_<id>.json # Individual results")
         print("")
         print("Optional timeout file: incremental_cadical_timeout.txt")
@@ -1154,79 +1262,84 @@ if __name__ == "__main__":
         if not os.path.exists('Output'):
             os.makedirs('Output')
         
-        # Read existing Excel file to check completed instances
-        excel_file = 'Output/pb_all_time.xlsx'
-        csv_file = 'Output/staicase_time.csv'
+        # Read existing CSV file to check completed instances
+        csv_file = 'Output/cb.csv'
+        completed_instances = set()
+        if os.path.exists(csv_file):
+            try:
+                with open(csv_file, 'r', newline='') as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        if not row or row[0] == "Instance":
+                            continue
+                        if len(row) >= 9:
+                            status = row[8].upper()
+                            if status not in ["", "RUNNING"]:
+                                try:
+                                    completed_instances.add((row[0], int(row[2]), int(row[3])))
+                                except ValueError:
+                                    continue
+            except Exception as e:
+                print(f"Warning: could not read completed instances from CSV: {e}")
 
-        completed_instances = []
-
-        
         # Set timeout (1 hour = 3600s)
         TIMEOUT = 3601
         
         print(f"Running {len(file_name1)} instances with {TIMEOUT}s timeout each")
         
         # Run all instances with runlim
-        # Here
         for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
+            m_val = file_name1[instance_id][1]
+            c_val = file_name1[instance_id][2]
+            
+            if (instance_name, m_val, c_val) in completed_instances:
+                print(f"Skipping completed instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
+                continue
             
             print(f"\n{'=' * 50}")
-            print(f"Running instance {instance_id}: {instance_name} (m={file_name1[instance_id][1]}, c={file_name1[instance_id][2]})")
+            print(f"Running instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
             print(f"{'=' * 50}")
             
-            # # Clean up previous result files
-            # for temp_file in [f'results_incremental_cadical_{instance_id}.json', 
-            #                   f'checkpoint_incremental_cadical_{instance_id}.json']:
-            #     if os.path.exists(temp_file):
-            #         os.remove(temp_file)
+            # Clean up previous result files
+            for temp_file in [f'results_incremental_cadical_{instance_id}.json', 
+                              f'checkpoint_incremental_cadical_{instance_id}.json']:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
             
             # Run instance with timeout
-            command = f"./runlim -r {TIMEOUT} python3   staircase4_time.py {instance_id}"
+            command = f"./runlim -r {TIMEOUT} {sys.executable} staircase4_time.py {instance_id}"
             
             try:
                 process = subprocess.Popen(command, shell=True)
                 process.wait()
                 time.sleep(1)
                 
-            #     # Check results
-            #     result = None
+                # Check results
+                result = None
                 
-            #     # if os.path.exists(f'results_incremental_cadical_{instance_id}.json'):
-            #     #     with open(f'results_incremental_cadical_{instance_id}.json', 'r') as f:
-            #     #         result = json.load(f)
+                if os.path.exists(f'results_incremental_cadical_{instance_id}.json'):
+                    with open(f'results_incremental_cadical_{instance_id}.json', 'r') as f:
+                        result = json.load(f)
                 
-            #     # Process results
-            #     if result:
-            #         print(f"Instance {instance_name} - Status: {result['Status']}")
-            #         print(f"Optimal Value: {result['OptimalValue']}, Runtime: {result['Runtime']}")
-                    
-            #         # Convert JSON to Excel format
-            #         if os.path.exists(excel_file):
-            #             try:
-            #                 existing_df = pd.read_excel(excel_file)
-            #                 result_df = pd.DataFrame([result])
-            #                 existing_df = pd.concat([existing_df, result_df], ignore_index=True)
-            #             except:
-            #                 existing_df = pd.DataFrame([result])
-            #         else:
-            #             existing_df = pd.DataFrame([result])
-                    
-            #         existing_df.to_excel(excel_file, index=False)
-            #         print(f"Results saved to {excel_file}")
-                # else:
-                #     print(f"No results found for instance {instance_name}")
+                # Process results
+                if result:
+                    print(f"Instance {instance_name} - Status: {result['Status']}")
+                    print(f"Optimal Value: {result['OptimalValue']}, Runtime: {result['Runtime']}")
+                    print(f"Results saved to {csv_file}")
+                else:
+                    print(f"No results found for instance {instance_name}")
                     
             except Exception as e:
                 print(f"Error running instance {instance_name}: {str(e)}")
             
-            # # Clean up temp files
-            # for temp_file in [f'results_incremental_cadical_{instance_id}.json', 
-            #                   f'checkpoint_incremental_cadical_{instance_id}.json']:
-            #     if os.path.exists(temp_file):
-            #         os.remove(temp_file)
+            # Clean up temp files
+            for temp_file in [f'results_incremental_cadical_{instance_id}.json', 
+                              f'checkpoint_incremental_cadical_{instance_id}.json']:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
         
-        print(f"\nAll instances completed. Results saved to {excel_file}")
+        print(f"\nAll instances completed. Results saved to {csv_file}")
     
     # Single instance mode
     else:

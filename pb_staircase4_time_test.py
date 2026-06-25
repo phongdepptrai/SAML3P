@@ -971,7 +971,7 @@ file_name1 = [
 
     # JAESCHKE
     ["JAESCHKE", 8, 6],     # 7
-    ["JAESCHKE", 3, 18],    # 8
+    ["JAESCHKE", 7, 7],    # 8
     ["JAESCHKE", 6, 8],     # 9
     ["JAESCHKE", 4, 10],    # 10
     ["JAESCHKE", 3, 18],    # 11

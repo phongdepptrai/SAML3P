@@ -9,13 +9,12 @@ import os
 import pandas as pd
 from datetime import datetime
 
-from numpy import var
 from pysat.solvers import Cadical195
 import fileinput
 from tabulate import tabulate
 import webbrowser
 import sys
-from pysat.pb import PBEnc, EncType
+from pysat.pb import PBEnc
 import csv
 # input variables in database ?? mertens 1
 n = 25
@@ -32,7 +31,6 @@ best_result = None
 current_instance_id = 0
 start_time_global = 0
 
-
 def save_best_result_snapshot(result=None):
     global best_result
 
@@ -46,7 +44,7 @@ def save_best_result_snapshot(result=None):
         json.dump(best_result, f)
 
 
-def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
+def upsert_result_csv(result, filename="Output/SAML3P_SM.csv"):
     fieldnames = ["Instance", "n", "m", "c", "variables", "soft", "Constraints", "Peak", "Status", "Time"]
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     problem_key = (
@@ -92,7 +90,6 @@ def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
 
     os.replace(tmp_filename, filename)
 
-
 def update_best_result(instance_name, n, m, c, variables, soft_clauses, hard_clauses, peak, status, runtime):
     global best_result
 
@@ -111,7 +108,6 @@ def update_best_result(instance_name, n, m, c, variables, soft_clauses, hard_cla
 
     save_best_result_snapshot(best_result)
     upsert_result_csv(best_result)
-
 
 # Signal handler for graceful interruption
 def handle_interrupt(signum, frame):
@@ -164,7 +160,6 @@ visited = [False for i in range(n)]
 toposort = []
 clauses = []
 time_list = []
-ran = []
 adj = []
 forward = [0 for i in range(n)]
 var_map = {}
@@ -174,65 +169,37 @@ var_counter = 0
 def read_input():
     cnt = 0
     global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
-    temp = []
     with open('presedent_graph/' + filename, 'r') as f:
         for line in f:
             line = line.strip()
             if line:
                 if cnt == 0:
                     n = int(line)
-                    for i in range(n):
-                        temp.append([])
-                        ran.append(0)
                 elif cnt <= n: # type: ignore
                     time_list.append(int(line))
                 else:
                     line = line.split(",")
                     if(line[0] != "-1" and line[1] != "-1"):
-                        a, b = int(line[0]) - 1, int(line[1]) - 1
-                        adj.append([a, b])
-                        neighbors[a][b] = 1
-                        reversed_neighbors[b][a] = 1
-                        temp[a].append(b)
+                        adj.append([int(line[0])-1, int(line[1])-1])
+                        neighbors[int(line[0])-1][int(line[1])-1] = 1
+                        reversed_neighbors[int(line[1])-1][int(line[0])-1] = 1
                     else:
                         break
                 cnt = cnt + 1
-    for i in range(n):
-        
-        delv(i, temp)
-    print(len(adj))
-
-
-def delv(i, temp):
-    global adj, neighbors, reversed_neighbors, ran
-    if len(temp[i]) == 0:
-        return []
-    if ran[i] == 1:
-        return temp[i]
-    for j in temp[i]:
-        con = delv(j, temp)
-        if con:
-            for k in con:
-                if [i, k] not in adj:
-                    adj.append([i, k])
-                    neighbors[i][k] = 1
-                    reversed_neighbors[k][i] = 1
-                    temp[i].append(k)
-    ran[i] = 1
-    return temp[i]
 
 
 def generate_variables(n,m,c):
     x = [[j*m+i+1 for i in range (m)] for j in range(n)]
     a = [[m*n + j*c + i + 1 for i in range (c)] for j in range(n)]
-    s = []
-    cnt = m*n + c*n + 1
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(cnt)
-            cnt = cnt + 1
-        s.append(tmp)
+    # s = []
+    # cnt = m*n + c*n + 1
+    # for j in range(n):
+    #     tmp = []
+    #     for i in range(c - time_list[j] + 1):
+    #         tmp.append(cnt)
+    #         cnt = cnt + 1
+    #     s.append(tmp)
+    s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
     return x, a, s
 
 def dfs(v):
@@ -335,118 +302,75 @@ def set_var(var, name, *args):
 def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     # #test
     # clauses.append([X[11 - 1][2 - 1]])
-    global clauses
-    global var_map
-    global var_counter
-    #staircase constraints
-    for j in range(n):
-        
-        set_var(X[j][0], "R", j, 0)
-        for k in range(1,m-1):
+    # 1
+    for j in range (0, n):
+        constraint = []
+        for k in range (0, m):
             if ip1[j][k] == 1:
-                set_var(get_var("R", j, k-1), "R", j, k)
-            else:
-                clauses.append([-get_var("R", j, k-1), get_var("R", j, k)])
-                clauses.append([-X[j][k], get_var("R", j, k)])
-                clauses.append([-X[j][k], -get_var("R", j, k-1)])
-                clauses.append([X[j][k], get_var("R", j, k-1), -get_var("R", j, k)])
-        # last machine
-        if ip1[j][m-1] == 1:
-            clauses.append([get_var("R", j, m-2)])
-        else:
-            clauses.append([get_var("R", j, m-2), X[j][m-1]])
-            clauses.append([-get_var("R", j, m-2), -X[j][m-1]])
-        
-
-    for (i,j) in adj:
-        for k in range(m-1):
-            if ip1[i][k+1] == 1:
                 continue
-            clauses.append([-get_var("R", j, k), -X[i][k+1]])
-    # # 1
-    # for j in range (0, n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     constraint = []
-    #     for k in range (0, m):
-    #         if ip1[j][k] == 1:
-    #             continue
-    #         constraint.append(X[j][k])
-    #     clauses.append(constraint)
-    # # 2 
-    # for j in range(0,n):
-    #     # if(forward[j] == 1):
-    #     #     continue
-    #     for k1 in range (0,m-1):
-    #         for k2 in range(k1+1,m):
-    #             if ip1[j][k1] == 1 or ip1[j][k2] == 1:
-    #                 continue
-    #             clauses.append([-X[j][k1], -X[j][k2]])
-
-    # #3
-    # for a,b in adj:
-    #     for k in range (0, m-1):
-    #         for h in range(k+1, m):
-    #             if ip1[b][k] == 1 or ip1[a][h] == 1:
-    #                 continue
-    #             clauses.append([-X[b][k], -X[a][h]])
-
-
-    print("first 3 constraints (staircase):", len(clauses))
-
-    # T[j][t] represents "task j starts at time t or earlier"
-    for j in range(n):
-        last_t = c-time_list[j]
-        
-        # Special case: Full cycle tasks (only one feasible start time: t=0)
-        if last_t == 0:
-            # Force the task to start at t=0 (equivalent to original constraint #4)
-            clauses.append([S[j][0]])
-        else:
-            # First time slot
-            set_var(S[j][0], "T", j, 0)
-            
-            # Intermediate time slots
-            for t in range(1, last_t):
-                clauses.append([-get_var("T", j, t-1), get_var("T", j, t)]) # T[j][t-1] -> T[j][t]
-                clauses.append([-S[j][t], get_var("T", j, t)]) # S[j][t] -> T[j][t]
-                clauses.append([-S[j][t], -get_var("T", j, t-1)]) # S[j][t] -> ¬T[j][t-1]
-                clauses.append([S[j][t], get_var("T", j, t-1), -get_var("T", j, t)]) # T[j][t] -> (T[j][t-1] ∨ S[j][t])
-            
-            # Last time slot (ensures at least one start time)
-            clauses.append([get_var("T", j, last_t-1), S[j][last_t]])
-            clauses.append([-get_var("T", j, last_t-1), -S[j][last_t]])
-    
-    # Original constraints #4 and #5 
-    # #4
-    # for j in range(n):
-    #     clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
-
-    # #5
-    # for j in range(n):
-    #     for k in range(c-time_list[j]):
-    #         for h in range(k+1, c-time_list[j]+1):
-    #             clauses.append([-S[j][k], -S[j][h]])
-
-    # #6
-    # for j in range(n):
-    #     for t in range(c-time_list[j]+1,c):
-    #         if t > c- time_list[j]:
-    #             clauses.append([-S[j][t]])
-    
-    print("4 5 6 constraints (staircase):", len(clauses))
-
-    #7
-    for i in range(n-1):
-        for j in range(i+1,n):
-            for k in range (m):
-                if ip1[i][k] == 1 or ip1[j][k] == 1 :
+            constraint.append(X[j][k])
+        clauses.append(constraint)
+    # 2 
+    for j in range(0,n):
+        for k1 in range (0,m-1):
+            for k2 in range(k1+1,m):
+                if ip1[j][k1] == 1 or ip1[j][k2] == 1:
                     continue
-                for t in range(c):
-                    # if ip2[i][k][t] == 1 or ip2[j][k][t] == 1:
-                    #     continue
-                    clauses.append([-X[i][k], -X[j][k], -A[i][t], -A[j][t]])
-    print("7 constraints:", len(clauses))
+                clauses.append([-X[j][k1], -X[j][k2]])
+
+    #3
+    for a,b in adj:
+        for k in range (0, m-1):
+            for h in range(k+1, m):
+                if ip1[b][k] == 1 or ip1[a][h] == 1:
+                    continue
+                clauses.append([-X[b][k], -X[a][h]])
+    print("first 3 constraints:", len(clauses))
+
+    #4
+
+    for j in range(n):
+        clauses.append([S[j][t] for t in range (c-time_list[j]+1)])
+
+    #5
+    for j in range(n):
+        for k in range(c-time_list[j]):
+            for h in range(k+1, c-time_list[j]+1):
+                clauses.append([-S[j][k], -S[j][h]])
+
+    #6
+    for j in range(n):
+        for t in range(c-time_list[j]+1,c):
+            if t > c- time_list[j]:
+                clauses.append([-S[j][t]])
+    print("4 5 6 constraints:", len(clauses))
+
+    #(X[i][k] ^ X[j][k]) -> SM[i][j]
+    for k in range(m):
+        for i in range(n - 1):
+            for j in range(i + 1, n):
+                if ip1[i][k] == 1 or ip1[j][k] == 1:
+                    continue
+                clauses.append([-X[i][k], -X[j][k], get_var("SM", i, j)])
+
+    # (X[i][k] ^ X[j][l]) -> -SM[i][j] when k != l
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            for k in range(m):
+                for l in range(m):
+                    if ip1[i][k] == 1 or ip1[j][l] == 1 or k == l:
+                        continue
+                    clauses.append([-X[i][k], -X[j][l], -get_var("SM", i, j)])
+
+    # (SM[i][j] ^ S[i][t_i]) -> allow j to start only outside i's execution window
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            for t_i in range(c - time_list[i] + 1):
+                min_t_j = max(0, t_i - time_list[j] + 1)
+                max_t_j = min(c - time_list[j], t_i + time_list[i] - 1)
+                for t_j in range(min_t_j, max_t_j + 1):
+                    clauses.append([-get_var("SM", i, j), -S[i][t_i], -S[j][t_j]])
+    print("14 constraints:", len(clauses))
     #8
     for j in range(n):
         for t in range (c-time_list[j]+1):
@@ -477,31 +401,18 @@ def generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A):
     #             continue
     #         clauses.append([ -A[j][t], A[j][t+1] , S[j][max(0,t-time_list[j]+1)]])
     
-    # #9
-
-    for i,j in adj:
+    #9
+    for i, j in adj:
         for k in range(m):
             if ip1[i][k] == 1 or ip1[j][k] == 1:
                 continue
-            left_bound = time_list[i] - 1
-            right_bound = c - time_list[j]
-            clauses.append([-X[i][k], -X[j][k], -get_var("T", j, left_bound)])
-            for t in range (left_bound + 1, right_bound):
-                t_i = t - time_list[i]+1
-                clauses.append([-X[i][k], -X[j][k], -get_var("T", j, t), -S[i][t_i]])
-            for t in range (max(0,right_bound - time_list[i] + 1), c - time_list[i] + 1):
-                clauses.append([-X[i][k], -X[j][k], -S[i][t], -get_var("T",j,c-time_list[j]-1)])
-    # for i, j in adj:
-    #     for k in range(m):
-    #         if ip1[i][k] == 1 or ip1[j][k] == 1:
-    #             continue
-    #         for t1 in range(c - time_list[i] +1):
-    #             #t1>t2
-    #             for t2 in range(c-time_list[j]+1):
-    #                 if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
-    #                     continue
-    #                 if t1 > t2:
-    #                     clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
+            for t1 in range(c - time_list[i] +1):
+                #t1>t2
+                for t2 in range(c-time_list[j]+1):
+                    if ip2[i][k][t1] == 1 or ip2[j][k][t2] == 1:
+                        continue
+                    if t1 > t2:
+                        clauses.append([-X[i][k], -X[j][k], -S[i][t1], -S[j][t2]])
     cons = len(clauses)
     print("Constraints:",cons)
 
@@ -579,15 +490,15 @@ def save_solution_to_log(solution, best_value, instance_name, status=""):
     # Generate solution data
     x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
     a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-    cnt = m*n + c*n 
-    s = []
-    for j in range(n):
-        tmp = []
-        for i in range(c - time_list[j] + 1):
-            tmp.append(solution[cnt])
-            cnt += 1
-        s.append(tmp)
-    
+    # cnt = m*n + c*n 
+    # s = []
+    # for j in range(n):
+    #     tmp = []
+    #     for i in range(c - time_list[j] + 1):
+    #         tmp.append(solution[cnt])
+    #         cnt += 1
+    #     s.append(tmp)
+    s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
     table = [[0 for t in range(c)] for k in range(m)]
     for k in range(m):
         for t in range(c):
@@ -769,15 +680,15 @@ def print_solution(solution):
     else:
         x = [[solution[j*m+i] for i in range(m)] for j in range(n)]
         a = [[solution[m*n + j*c + i] for i in range(c)] for j in range(n)]
-        # s = [[solution[m*n + c*n + j*c + i] for i in range(c)] for j in range(n)]
+        s = [[solution[m*n + c*n + j*c + i + 1] for i in range(c)] for j in range(n)]
         cnt = m*n + c*n 
-        s = []
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        # s = []
+        # for j in range(n):
+        #     tmp = []
+        #     for i in range(c - time_list[j] + 1):
+        #         tmp.append(solution[cnt])
+        #         cnt += 1
+        #     s.append(tmp)
         table = [[0 for t in range(c)] for k in range(m)]
         for k in range(m):
             for t in range(c):
@@ -843,14 +754,14 @@ def get_value(solution,best_value):
     else:
         x = [[  solution[j*m+i] for i in range (m)] for j in range(n)]
         a = [[  solution[m*n + j*c + i ] for i in range (c)] for j in range(n)]
-        s = []
-        cnt = m*n + c*n
-        for j in range(n):
-            tmp = []
-            for i in range(c - time_list[j] + 1):
-                tmp.append(solution[cnt])
-                cnt += 1
-            s.append(tmp)
+        s = [[m*n + c*n + j*c + i + 1 for i in range(c)] for j in range(n)]
+        # cnt = m*n + c*n
+        # for j in range(n):
+        #     tmp = []
+        #     for i in range(c - time_list[j] + 1):
+        #         tmp.append(solution[cnt])
+        #         cnt += 1
+        #     s.append(tmp)
         t = 0
         value = 0
         lowval = 0
@@ -901,23 +812,22 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A)
 
     solver = Cadical195()
-    test_solver = Cadical195()
-
     for clause in clauses:
         solver.add_clause(clause)
-        test_solver.add_clause(clause)
 
     # Check timeout before initial solve
     current_time = time.time()
     remaining_time = 3600 - (current_time - start_time)
     if remaining_time <= 0:
         print("Instance timeout before initial solve")
+        update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), 0, "TIMEOUT", time.time() - start_time)
         return 0, var_counter, clauses, [], "TIMEOUT"
 
     # Use timeout for initial solve
     model = solve(solver)
     if model is None:
         print("Initial solve timed out or no solution")
+        update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), 0, "TIMEOUT", time.time() - start_time)
         return 0, var_counter, clauses, [], "TIMEOUT"
         
     bestSolution = model 
@@ -925,96 +835,59 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
     result = get_value(model, infinity)
 
     bestValue, lowval, station = result
-    update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
-
-    print(bestValue)
-
-    for idex in range(10):
-        model = solve(test_solver)
-        if model is None:
-            print("no solution")
-            return bestValue, var_counter, clauses, [], "Optimal"
-        result = get_value(model, bestValue)
-        current_bestValue, lowval, station = result
-        
-        if current_bestValue < bestValue:
-            bestValue = current_bestValue
-            bestSolution = model
-            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
-        for t in range(c):
-            for stations in station:
-                test_solver.add_clause([-A[j-1][t] for j in stations])
-        print(result[0], end=" ")
-
-
-    lowval = max(W)
     print("initial value:",bestValue)
     print("initial station:",station)
-    start_var = var_counter
-    clauses , soft_clauses, var, U, solver1 = generate_inagural(n,m,c, X, S, A, W, bestValue, lowval, clauses, start_var, solver)
-    # Using incremental SAT solving
-    pre_idx = bestValue-lowval-1
+    update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
+    for t in range(c):
+        for stations in station:
+            
+            solver.add_clause([-A[j-1][t] for j in stations])
     while (True):
         # Check timeout
         current_time = time.time()
         if current_time - start_time >= 3600:
             print("Time limit exceeded.")
             # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
-            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
             save_solution_to_log(bestSolution, bestValue, instance_name, "Time_Limit_Exceeded")
-            return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
+            return bestValue, var_counter, clauses, 0, "Time Limit Exceeded"
             
         remaining_time = 3600 - (current_time - start_time)
         if remaining_time <= 1:  # Need at least 1 second
             print("Time limit exceeded - insufficient time remaining")
             # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
-            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
             save_solution_to_log(bestSolution, bestValue, instance_name, "Time_Limit_Exceeded")
-            return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
+            return bestValue, var_counter, clauses, 0, "Time Limit Exceeded"
             
         # Use timeout for each iterative solve
         # model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
-        model = solve(solver1)
+        model = solve(solver)
         if model is None:
             print("No solution found maxsat or timeout.")
             # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
-            update_best_result(instance_name, n, m, c, var_counter, len(soft_clauses), len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
             save_solution_to_log(bestSolution, bestValue, instance_name, "Optimal")
-            return bestValue, var, clauses, soft_clauses, "Optimal"
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
+            return bestValue, var_counter, clauses, 0, "Optimal"
             
         # Update best solution when we find a better one
         bestSolution = model
-        ansmap, bestValue = get_value2(n, m, c, model, W)
-        print("best value:", bestValue, end="\r")
-        update_best_result(instance_name, n, m, c, var_counter, len(soft_clauses), len(clauses), bestValue, "RUNNING", time.time() - start_time)
-        idx = bestValue - lowval - 1
-        solver1.add_clause([-U[idx-1]])
-        # for i in range (idx, pre_idx):
-        #     if pre_idx > 0:
-        #         solver1.add_clause([-U[i]])
-        # pre_idx = idx
-        
-def get_value2(n, m, c, model, W, UB = 0):
-    ans_map = [[0 for _ in range(c)] for _ in range(m + 1)]
-    start_B = n*m
-    start_A = start_B + n*c
-    start_U = start_A + n*c
-    
-    for i in range(m):
-        for j in range(c):
-            for k in range(n):
-                if ((model[k*m  + i] > 0) and model[start_B + k*c + j] > 0):
-                    ans_map[i][j] = W[k]
-    
-    for i in range(c):
-        ans_map[m][i] = sum(ans_map[j][i] for j in range(m))
-    peak = max(ans_map[m][i] for i in range(c))
-    return ans_map, peak
+        value,low, station = get_value(model, bestValue)
+        # print("value:",value)
+        # print("station:",station)
+        if value < bestValue:
+            solbb = sol
+            bestSolution = model
+            bestValue = value
+            # print("new value:",bestValue)
+            # print("new station:",station)
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
 
-    
+        for t in range(c):
+            for stations in station:
+                solver.add_clause([-A[j-1][t] for j in stations])
+                # print(stations)
+        
 def get_value2(n, m, c, model, W, UB = 0):
     ans_map = [[0 for _ in range(c)] for _ in range(m + 1)]
     start_B = n*m
@@ -1057,7 +930,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
             weight.append(W[i])
         pb_clauses = PBEnc.leq( lits=variables, weights=weight, 
                                 bound=UB, 
-                                top_id=var, encoding=EncType.binmerge)
+                                top_id=var)
         # Update variable counter for any new variables created by PBEnc
         if pb_clauses.nv > var:
             var = pb_clauses.nv + 1
@@ -1069,7 +942,7 @@ def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
             
 
     return clauses, soft_clauses, var, U, solver
-def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="incremental_No_SM.csv"):
+def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="SAML3P_SM.csv"):
     global best_result
     
     # Create result dictionary
@@ -1235,7 +1108,7 @@ file_name1 = [
     ["WARNECKE", 23, 71],   # 71
     ["WARNECKE", 22, 74],   # 72
     ["WARNECKE", 21, 78],   # 73
-    ["WARNECKE", 20, 82],   # 74
+    ["WARNECKE", 20, 82],   # 74 #here
     ["WARNECKE", 19, 86],   # 75
     ["WARNECKE", 17, 92],   # 76
     ["WARNECKE", 17, 97],   # 77
@@ -1256,39 +1129,15 @@ file_name1 = [
     ["LUTZ2", 25, 20],      # 89
     ["LUTZ2", 24, 21],      # 90
     # Hard/Lutz2 count: 11
-    ["WEEMAG", 63, 28],
-    ["WEEMAG", 63, 29],
-    ["WEEMAG", 62, 30],
-    ["WEEMAG", 62, 31],
-    ["WEEMAG", 61, 32],
-    ["WEEMAG", 61, 33],
-    ["WEEMAG", 61, 34],
-    ["WEEMAG", 60, 35],
-    ["WEEMAG", 60, 36],
-    ["WEEMAG", 60, 37],
-    ["WEEMAG", 60, 38],
-    ["WEEMAG", 60, 39],
-    ["WEEMAG", 60, 40],
-    ["WEEMAG", 59, 41],
-    ["WEEMAG", 55, 42],
-    ["WEEMAG", 50, 43],
-    ["WEEMAG", 38, 45],
-    ["WEEMAG", 34, 46],
-    ["WEEMAG", 32, 47],
-    ["WEEMAG", 33, 47],
-    ["WEEMAG", 32, 49],
-    ["WEEMAG", 32, 50],
-    ["WEEMAG", 31, 52],
-    ["WEEMAG", 31, 54],
-    ["WEEMAG", 30, 56],
+
     # Hard families total count: 50
 
     # Total: 89
 ]
 
 # Override instances if timeout file exists
-if os.path.exists("incremental_cadical_timeout.txt"):
-    with open("incremental_cadical_timeout.txt", "r") as f:
+if os.path.exists("SAML3P_SM.txt"):
+    with open("SAML3P_SM.txt", "r") as f:
         timeout_instances = [line.strip() for line in f if line.strip()]
     # Filter file_name1 to only include instances in timeout file
     file_name1 = [instance for instance in file_name1 if instance[0] in timeout_instances]
@@ -1342,12 +1191,7 @@ def run_single_instance(instance_id):
     end_time = time.time()
     
     # Write results
-    write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, len(soft_clauses), len(clauses), solval, status, end_time - start_time)
-    
-    # Save JSON result for controller
-    if best_result:
-        with open(f'results_incremental_cadical_{instance_id}.json', 'w') as f:
-            json.dump(best_result, f)
+    write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, 0, len(clauses), solval, status, end_time - start_time)
     
     print(f"Instance {instance_id} completed - Runtime: {end_time - start_time:.2f}s, Status: {status}")
 
@@ -1378,22 +1222,22 @@ if __name__ == "__main__":
     # Help message
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help', 'help']:
         print("Usage:")
-        print("  python3 incremental_binary_merger.py              # Run all instances with runlim")
-        print("  python3 incremental_binary_merger.py <id>         # Run single instance by ID")
-        print("  python3 incremental_binary_merger.py easy         # Run only easy instances (0-38)")
-        print("  python3 incremental_binary_merger.py hard         # Run only hard instances (39+)")
-        print("  python3 incremental_binary_merger.py all          # Run all instances")
+        print("  python3 SAML3P_SM.py              # Run all instances with runlim")
+        print("  python3 SAML3P_SM.py <id>         # Run single instance by ID")
+        print("  python3 SAML3P_SM.py easy         # Run only easy instances (0-38)")
+        print("  python3 SAML3P_SM.py hard         # Run only hard instances (39+)")
+        print("  python3 SAML3P_SM.py all          # Run all instances")
         print("")
         print(f"Available instances: {len(file_name1)} total")
         print("Easy instances: 0-38 (39 instances)")
         print("Hard instances: 39+ (remaining instances)")
         print("")
         print("Files created:")
-        print("  Output/Incremental_cadical_all.csv   # CSV results")
-        print("  Output/Incremental_cadical_all.xlsx  # Excel results")
+        print("  Output/SAML3P_SM.csv   # CSV results")
+        print("  Output/SAML3P_SM.xlsx  # Excel results")
         print("  results_incremental_cadical_<id>.json # Individual results")
         print("")
-        print("Optional timeout file: incremental_cadical_timeout.txt")
+        print("Optional timeout file: SAML3P_SM.txt")
         print("  (List instance names to run only those instances)")
         sys.exit(0)
     
@@ -1422,23 +1266,12 @@ if __name__ == "__main__":
         if not os.path.exists('Output'):
             os.makedirs('Output')
         
-        # Read existing CSV file to check completed instances
-        excel_file = 'Output/incremental_No_SM.xlsx'
-        csv_file = 'Output/incremental_No_SM.csv'
+        # Read existing Excel file to check completed instances
+        excel_file = 'Output/SAML3P_SM.xlsx'
+        csv_file = 'Output/SAML3P_SM.csv'
         
-        completed_instances = set()
-        if os.path.exists(csv_file):
-            try:
-                with open(csv_file, 'r', newline='') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        inst = row.get("Instance")
-                        m_val = row.get("m")
-                        c_val = row.get("c")
-                        if inst and m_val and c_val:
-                            completed_instances.add((inst.strip().upper(), int(m_val), int(c_val)))
-            except Exception as e:
-                print(f"Error reading completed instances from {csv_file}: {e}")
+        completed_instances = []
+
         
         # Set timeout (1 hour = 3600s)
         TIMEOUT = 3601
@@ -1449,13 +1282,6 @@ if __name__ == "__main__":
         # Here
         for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
-            m_val = file_name1[instance_id][1]
-            c_val = file_name1[instance_id][2]
-            
-            # Skip if already completed
-            if (instance_name.strip().upper(), m_val, c_val) in completed_instances:
-                print(f"Skipping already completed instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
-                continue
             
             print(f"\n{'=' * 50}")
             print(f"Running instance {instance_id}: {instance_name} (m={file_name1[instance_id][1]}, c={file_name1[instance_id][2]})")
@@ -1468,7 +1294,7 @@ if __name__ == "__main__":
                     os.remove(temp_file)
             
             # Run instance with timeout
-            command = f"./runlim -r {TIMEOUT} {sys.executable} incremental_cadical_2.py {instance_id}"
+            command = f"./runlim -r {TIMEOUT} {sys.executable} SAML3P_SM.py {instance_id}"
             
             try:
                 process = subprocess.Popen(command, shell=True)

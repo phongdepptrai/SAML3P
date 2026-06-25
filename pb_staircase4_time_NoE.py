@@ -17,6 +17,7 @@ import webbrowser
 import sys
 from pysat.pb import PBEnc, EncType
 import csv
+
 # input variables in database ?? mertens 1
 n = 25
 m = 6
@@ -32,7 +33,6 @@ best_result = None
 current_instance_id = 0
 start_time_global = 0
 
-
 def save_best_result_snapshot(result=None):
     global best_result
 
@@ -46,7 +46,7 @@ def save_best_result_snapshot(result=None):
         json.dump(best_result, f)
 
 
-def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
+def upsert_result_csv(result, filename="Output/pb_NoE.csv"):
     fieldnames = ["Instance", "n", "m", "c", "variables", "soft", "Constraints", "Peak", "Status", "Time"]
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     problem_key = (
@@ -59,16 +59,21 @@ def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
     rows = []
     if os.path.exists(filename):
         with open(filename, "r", newline="") as f:
-            reader = csv.DictReader(f)
+            reader = csv.reader(f)
             for row in reader:
-                row_key = (
-                    str(row.get("Instance", "Unknown")),
-                    str(row.get("n", "")),
-                    str(row.get("m", "")),
-                    str(row.get("c", "")),
-                )
-                if row_key != problem_key:
-                    rows.append(row)
+                if not row or row[0] == "Instance":
+                    continue
+                if len(row) >= 4:
+                    row_key = (str(row[0]), str(row[1]), str(row[2]), str(row[3]))
+                    if row_key == problem_key:
+                        continue
+                row_dict = {}
+                for idx, field in enumerate(fieldnames):
+                    if idx < len(row):
+                        row_dict[field] = row[idx]
+                    else:
+                        row_dict[field] = ""
+                rows.append(row_dict)
 
     new_row = {
         "Instance": result.get("Instance", "Unknown"),
@@ -91,7 +96,6 @@ def upsert_result_csv(result, filename="Output/incremental_No_SM.csv"):
         writer.writerows(rows)
 
     os.replace(tmp_filename, filename)
-
 
 def update_best_result(instance_name, n, m, c, variables, soft_clauses, hard_clauses, peak, status, runtime):
     global best_result
@@ -170,7 +174,6 @@ forward = [0 for i in range(n)]
 var_map = {}
 var_counter = 0
 # W = [41, 13, 21, 24, 11, 11, 41, 32, 31, 25, 29, 25, 31, 3, 14, 37, 34, 6, 18, 35, 18, 19, 25, 40, 20, 20, 36, 23, 29, 48, 41, 20, 31, 25, 1]
-
 def read_input():
     cnt = 0
     global n, adj, neighbors, reversed_neighbors, filename, time_list, forward
@@ -197,9 +200,6 @@ def read_input():
                     else:
                         break
                 cnt = cnt + 1
-    for i in range(n):
-        
-        delv(i, temp)
     print(len(adj))
 
 
@@ -534,15 +534,15 @@ def timeout_handler(signum, frame):
 
 def solve_with_timeout(solver, timeout_seconds):
     try:
-        # Ensure timeout_seconds is an integer for signal.alarm()
-        timeout_int = max(1, int(timeout_seconds))
-        
         # Set up timeout signal
         signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_int)
+        signal.alarm(timeout_seconds)
         
         # Try to solve
-        result = solve(solver)
+        if solver.solve():
+            result = solver.get_model()
+        else:
+            result = None
         
         # Cancel timeout if we finish early
         signal.alarm(0)
@@ -550,16 +550,19 @@ def solve_with_timeout(solver, timeout_seconds):
         
     except TimeoutException:
         signal.alarm(0)  # Cancel timeout
-        print(f"Solver timed out after {timeout_int} seconds")
+        print(f"Solver timed out after {timeout_seconds} seconds")
         return None
 
-def solve(solver):
-    if solver.solve():
-        model = solver.get_model()
-        return model
-    else:
-        # print("no solution")
+def solve(solver, start_time, timeout=3600):
+    current_time = time.time()
+    remaining_time = timeout - (current_time - start_time)
+    
+    if remaining_time <= 0:
+        print("Timeout reached before calling solver")
         return None
+    
+    # Use signal-based timeout
+    return solve_with_timeout(solver, int(remaining_time))
 
 def save_solution_to_log(solution, best_value, instance_name, status=""):
     """Save solution to a date-based folder in log directory with instance-specific structure"""
@@ -891,49 +894,43 @@ def get_value(solution,best_value):
 
         return value, lowval, unique_constraints
 
+
 def optimal(X,S,A,n,m,c,sol,solbb,start_time):
-    global filename  # Access the global filename variable
+    global var_counter, var_map
     instance_name = filename.split(".")[0] if filename else "Unknown"
-    
     ip1,ip2 = preprocess(n,m,c,time_list,adj)
 
     # print(ip2[])
+
+
     clauses = generate_clauses(n,m,c,time_list,adj,ip1,ip2,X,S,A)
 
     solver = Cadical195()
     test_solver = Cadical195()
-
     for clause in clauses:
         solver.add_clause(clause)
         test_solver.add_clause(clause)
 
-    # Check timeout before initial solve
-    current_time = time.time()
-    remaining_time = 3600 - (current_time - start_time)
-    if remaining_time <= 0:
-        print("Instance timeout before initial solve")
-        return 0, var_counter, clauses, [], "TIMEOUT"
-
-    # Use timeout for initial solve
-    model = solve(solver)
+    model = solve(solver,start_time = start_time)
     if model is None:
-        print("Initial solve timed out or no solution")
-        return 0, var_counter, clauses, [], "TIMEOUT"
-        
+        print("No solution found.")
+        update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), 0, "first cancelled", time.time() - start_time)
+        return 0, var_counter, clauses, "first cancelled"
     bestSolution = model 
     infinity = 1000000
     result = get_value(model, infinity)
 
-    bestValue, lowval, station = result
+    bestValue,lowval, station = result
+    print("initial value:",bestValue)
+    print("initial station:",station)
     update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
 
-    print(bestValue)
-
     for idex in range(10):
-        model = solve(test_solver)
+        model = solve(test_solver, start_time = start_time)
         if model is None:
             print("no solution")
-            return bestValue, var_counter, clauses, [], "Optimal"
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
+            return bestValue, var_counter, clauses, "Optimal"
         result = get_value(model, bestValue)
         current_bestValue, lowval, station = result
         
@@ -947,129 +944,70 @@ def optimal(X,S,A,n,m,c,sol,solbb,start_time):
         print(result[0], end=" ")
 
 
-    lowval = max(W)
-    print("initial value:",bestValue)
-    print("initial station:",station)
-    start_var = var_counter
-    clauses , soft_clauses, var, U, solver1 = generate_inagural(n,m,c, X, S, A, W, bestValue, lowval, clauses, start_var, solver)
-    # Using incremental SAT solving
-    pre_idx = bestValue-lowval-1
-    while (True):
-        # Check timeout
+    for t in range(c):
+        lits = []
+        coeffs = []
+        for j in range(n):
+            lits.append(A[j][t])
+            coeffs.append(W[j])
+        pb_enc = PBEnc.leq(lits = lits, 
+                        weights = coeffs, 
+                        bound = bestValue - 1 , 
+                        top_id = var_counter+1,
+                        encoding=EncType.binmerge
+                        )
+        if pb_enc.nv > var_counter:
+            var_counter = pb_enc.nv + 1
+        for clause in pb_enc.clauses:
+            solver.add_clause(clause)
+    sol = 1
+    solbb = 1
+    while True:
+        # start_time = time.time()
+        sol = sol + 1
+        lits = []
+        coeffs = []
+        model = solve(solver,start_time)
+        if model is None:
+            # print(bestSolution)
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
+            return bestValue, var_counter, clauses, "Optimal"
+        solver = Cadical195()
+        for clause in clauses:
+            solver.add_clause(clause)
+        
         current_time = time.time()
         if current_time - start_time >= 3600:
-            print("Time limit exceeded.")
-            # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
+            print("time out")
             update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
-            save_solution_to_log(bestSolution, bestValue, instance_name, "Time_Limit_Exceeded")
-            return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
-            
-        remaining_time = 3600 - (current_time - start_time)
-        if remaining_time <= 1:  # Need at least 1 second
-            print("Time limit exceeded - insufficient time remaining")
-            # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
-            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "TIMEOUT", time.time() - start_time)
-            save_solution_to_log(bestSolution, bestValue, instance_name, "Time_Limit_Exceeded")
-            return bestValue, var, clauses, soft_clauses, "Time Limit Exceeded"
-            
-        # Use timeout for each iterative solve
-        # model = solve_with_timeout(solver1, min(int(remaining_time), 3600))  # Max 3600s per iteration
-        model = solve(solver1)
-        if model is None:
-            print("No solution found maxsat or timeout.")
-            # Save solution before returning
-            instance_name = filename.split(".")[0] if filename else "Unknown"
-            update_best_result(instance_name, n, m, c, var_counter, len(soft_clauses), len(clauses), bestValue, "OPTIMAL", time.time() - start_time)
-            save_solution_to_log(bestSolution, bestValue, instance_name, "Optimal")
-            return bestValue, var, clauses, soft_clauses, "Optimal"
-            
-        # Update best solution when we find a better one
-        bestSolution = model
-        ansmap, bestValue = get_value2(n, m, c, model, W)
-        print("best value:", bestValue, end="\r")
-        update_best_result(instance_name, n, m, c, var_counter, len(soft_clauses), len(clauses), bestValue, "RUNNING", time.time() - start_time)
-        idx = bestValue - lowval - 1
-        solver1.add_clause([-U[idx-1]])
-        # for i in range (idx, pre_idx):
-        #     if pre_idx > 0:
-        #         solver1.add_clause([-U[i]])
-        # pre_idx = idx
+            return bestValue, var_counter, clauses, "TIMEOUT"
+        # print(f"Time taken: {end_time - start_time} seconds")
         
-def get_value2(n, m, c, model, W, UB = 0):
-    ans_map = [[0 for _ in range(c)] for _ in range(m + 1)]
-    start_B = n*m
-    start_A = start_B + n*c
-    start_U = start_A + n*c
-    
-    for i in range(m):
-        for j in range(c):
-            for k in range(n):
-                if ((model[k*m  + i] > 0) and model[start_B + k*c + j] > 0):
-                    ans_map[i][j] = W[k]
-    
-    for i in range(c):
-        ans_map[m][i] = sum(ans_map[j][i] for j in range(m))
-    peak = max(ans_map[m][i] for i in range(c))
-    return ans_map, peak
+        value,lowval, station = get_value(model, bestValue)
+        # print("value:",value)
+        # print("station:",station)
+        if value < bestValue:
+            solbb = sol
+            bestSolution = model
+            bestValue = value
+            print("new value:",bestValue)
+            # print("new station:",station)
+            update_best_result(instance_name, n, m, c, var_counter, 0, len(clauses), bestValue, "RUNNING", time.time() - start_time)
 
-    
-def get_value2(n, m, c, model, W, UB = 0):
-    ans_map = [[0 for _ in range(c)] for _ in range(m + 1)]
-    start_B = n*m
-    start_A = start_B + n*c
-    start_U = start_A + n*c
-    
-    for i in range(m):
-        for j in range(c):
-            for k in range(n):
-                if ((model[k*m  + i] > 0) and model[start_B + k*c + j] > 0):
-                    ans_map[i][j] = W[k]
-    
-    for i in range(c):
-        ans_map[m][i] = sum(ans_map[j][i] for j in range(m))
-    peak = max(ans_map[m][i] for i in range(c))
-    return ans_map, peak
-
-
-def generate_inagural(n,m,c, X, S, A, W, UB, LB, clauses, var_counter, solver):
-    soft_clauses = []
-    U = []
-    for i in range(LB + 1, UB):
-        U.append(var_counter + 1)
-        var_counter += 1
-        soft_clauses.append([[-var_counter], 1])
-    
-    for i in range(1, len(U)):
-        clauses.append([-U[i], U[i-1]])
-        solver.add_clause([-U[i], U[i-1]])
-    
-    var = var_counter + 1
-    for t in range(c):
-        variables = []
-        weight = []
-        for i in range(len(U)):
-            variables.append(-U[i])
-            weight.append(1)
-        for i in range(n):
-            variables.append(A[i][t])
-            weight.append(W[i])
-        pb_clauses = PBEnc.leq( lits=variables, weights=weight, 
-                                bound=UB, 
-                                top_id=var, encoding=EncType.binmerge)
-        # Update variable counter for any new variables created by PBEnc
-        if pb_clauses.nv > var:
-            var = pb_clauses.nv + 1
-            
-        # Add the encoded clauses to WCNF
-        for clause in pb_clauses.clauses:
-            clauses.append(clause)
-            solver.add_clause(clause)
-            
-
-    return clauses, soft_clauses, var, U, solver
-def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="incremental_No_SM.csv"):
+        for t in range(c):
+            lits = []  
+            coeffs = []
+            for j in range(n):
+                lits.append(A[j][t])
+                coeffs.append(W[j])
+            pb_enc = PBEnc.leq(lits = lits, weights = coeffs, bound = bestValue - 1 , top_id= var_counter + 1,
+                               encoding=EncType.binmerge)
+            if pb_enc.nv > var_counter:
+                var_counter = pb_enc.nv + 1
+            for clause in pb_enc.clauses:
+                solver.add_clause(clause)
+                # print(stations)
+def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, time_elapsed, filename="pb_NoE.csv"):
     global best_result
     
     # Create result dictionary
@@ -1091,38 +1029,6 @@ def write_fancy_table_to_csv(ins, n, m, c, val, s_cons, h_cons, peak, status, ti
     
     # Write or replace row in CSV
     upsert_result_csv(result, filename="Output/" + filename)
-
-file_name = [
-    ["MERTENS", 6, 6],      #0
-    ["MERTENS", 2, 18],     #1
-    ["BOWMAN", 5, 20],      #2
-    ["JAESCHKE", 8, 6],     #3
-    ["JAESCHKE", 3, 18],    #4
-    ["JACKSON", 8, 7],      #5
-    ["JACKSON", 3, 21],     #6
-    ["MANSOOR", 4, 48],     #7
-    ["MANSOOR", 2, 94],     #8
-    ["MITCHELL", 8, 14],    #9
-    ["MITCHELL", 3, 39],    #10
-    ["ROSZIEG", 10, 14],    #11
-    ["ROSZIEG", 4, 32],     #12
-    ["ROSZIEG", 6, 25],     #13
-    ["HESKIA", 8, 138],     #14
-    ["HESKIA", 3, 342],     #15
-    ["HESKIA", 5, 205],     #16
-    ["BUXEY", 14, 25],      #17
-    ["BUXEY", 7, 47],       #18
-    ["BUXEY", 8, 41],       #19
-    ["BUXEY", 11, 33],      #20
-    ["SAWYER", 14, 25],     #21
-    ["SAWYER", 7, 47],      #22
-    ["SAWYER", 8, 41],      #23
-    ["SAWYER", 12, 30],     #24
-    ["GUNTHER", 14, 40],    #25
-    ["GUNTHER", 9, 54],     #26
-    ["GUNTHER", 9, 61],     #27
-    ["WARNECKE",25, 65]     #28
-    ]
 
 file_name1 = [
     # Easy families 
@@ -1286,13 +1192,6 @@ file_name1 = [
     # Total: 89
 ]
 
-# Override instances if timeout file exists
-if os.path.exists("incremental_cadical_timeout.txt"):
-    with open("incremental_cadical_timeout.txt", "r") as f:
-        timeout_instances = [line.strip() for line in f if line.strip()]
-    # Filter file_name1 to only include instances in timeout file
-    file_name1 = [instance for instance in file_name1 if instance[0] in timeout_instances]
-
 def reset(idx):
     global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter, current_instance_id
     current_instance_id = idx
@@ -1338,11 +1237,11 @@ def run_single_instance(instance_id):
     sol = 0
     solbb = 0
     start_time = time.time()
-    solval, vari, clauses, soft_clauses, status = optimal(X,S,A,n,m,c,sol,solbb,start_time)
+    solval, vari, clauses, status = optimal(X,S,A,n,m,c,sol,solbb,start_time)
     end_time = time.time()
     
     # Write results
-    write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, len(soft_clauses), len(clauses), solval, status, end_time - start_time)
+    write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, 0, len(clauses), solval, status, end_time - start_time)
     
     # Save JSON result for controller
     if best_result:
@@ -1351,46 +1250,23 @@ def run_single_instance(instance_id):
     
     print(f"Instance {instance_id} completed - Runtime: {end_time - start_time:.2f}s, Status: {status}")
 
-def main():
-    """Original main function - runs all instances sequentially"""
-    global n, m, c, val, cons, sol, solbb, type, filename, W, neighbors, reversed_neighbors, visited, toposort, clauses, time_list, adj, forward, var_map, var_counter, start_time_global
-    
-    start_time_global = time.time()
-    # Run all 89 instances (change to 39 for easy instances only)
-    for idx in range(0, len(file_name1)):
-        reset(idx)
-        read_input()
-        X, A, S = generate_variables(n,m,c)
-        val = max(S)
-
-        # print(val)
-        var_counter = max(val)
-        var_map = {}
-
-        sol = 0
-        solbb = 0
-        start_time = time.time()
-        solval, vari, clauses, soft_clauses, status = optimal(X,S,A,n,m,c,sol,solbb,start_time)
-        end_time = time.time()
-        write_fancy_table_to_csv(filename.split(".")[0], n, m, c, vari, len(soft_clauses), len(clauses), solval, status, end_time - start_time)
-
 if __name__ == "__main__":
     # Help message
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help', 'help']:
         print("Usage:")
-        print("  python3 incremental_binary_merger.py              # Run all instances with runlim")
-        print("  python3 incremental_binary_merger.py <id>         # Run single instance by ID")
-        print("  python3 incremental_binary_merger.py easy         # Run only easy instances (0-38)")
-        print("  python3 incremental_binary_merger.py hard         # Run only hard instances (39+)")
-        print("  python3 incremental_binary_merger.py all          # Run all instances")
+        print("  python3 pb_staircase4_time_NoE.py              # Run all instances with runlim")
+        print("  python3 pb_staircase4_time_NoE.py <id>         # Run single instance by ID")
+        print("  python3 pb_staircase4_time_NoE.py easy         # Run only easy instances (0-38)")
+        print("  python3 pb_staircase4_time_NoE.py hard         # Run only hard instances (39+)")
+        print("  python3 pb_staircase4_time_NoE.py all          # Run all instances")
         print("")
         print(f"Available instances: {len(file_name1)} total")
         print("Easy instances: 0-38 (39 instances)")
         print("Hard instances: 39+ (remaining instances)")
         print("")
         print("Files created:")
-        print("  Output/Incremental_cadical_all.csv   # CSV results")
-        print("  Output/Incremental_cadical_all.xlsx  # Excel results")
+        print("  Output/pb_NoE.csv   # CSV results")
+        print("  Output/pb_all_time.xlsx  # Excel results")
         print("  results_incremental_cadical_<id>.json # Individual results")
         print("")
         print("Optional timeout file: incremental_cadical_timeout.txt")
@@ -1423,42 +1299,42 @@ if __name__ == "__main__":
             os.makedirs('Output')
         
         # Read existing CSV file to check completed instances
-        excel_file = 'Output/incremental_No_SM.xlsx'
-        csv_file = 'Output/incremental_No_SM.csv'
-        
+        csv_file = 'Output/pb_NoE.csv'
         completed_instances = set()
         if os.path.exists(csv_file):
             try:
                 with open(csv_file, 'r', newline='') as f:
-                    reader = csv.DictReader(f)
+                    reader = csv.reader(f)
                     for row in reader:
-                        inst = row.get("Instance")
-                        m_val = row.get("m")
-                        c_val = row.get("c")
-                        if inst and m_val and c_val:
-                            completed_instances.add((inst.strip().upper(), int(m_val), int(c_val)))
+                        if not row or row[0] == "Instance":
+                            continue
+                        if len(row) >= 9:
+                            status = row[8].upper()
+                            if status not in ["", "RUNNING"]:
+                                try:
+                                    completed_instances.add((row[0], int(row[2]), int(row[3])))
+                                except ValueError:
+                                    continue
             except Exception as e:
-                print(f"Error reading completed instances from {csv_file}: {e}")
-        
+                print(f"Warning: could not read completed instances from CSV: {e}")
+
         # Set timeout (1 hour = 3600s)
         TIMEOUT = 3601
         
         print(f"Running {len(file_name1)} instances with {TIMEOUT}s timeout each")
         
         # Run all instances with runlim
-        # Here
         for instance_id in range(0, len(file_name1)):
             instance_name = file_name1[instance_id][0]
             m_val = file_name1[instance_id][1]
             c_val = file_name1[instance_id][2]
             
-            # Skip if already completed
-            if (instance_name.strip().upper(), m_val, c_val) in completed_instances:
-                print(f"Skipping already completed instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
+            if (instance_name, m_val, c_val) in completed_instances:
+                print(f"Skipping completed instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
                 continue
             
             print(f"\n{'=' * 50}")
-            print(f"Running instance {instance_id}: {instance_name} (m={file_name1[instance_id][1]}, c={file_name1[instance_id][2]})")
+            print(f"Running instance {instance_id}: {instance_name} (m={m_val}, c={c_val})")
             print(f"{'=' * 50}")
             
             # Clean up previous result files
@@ -1468,7 +1344,7 @@ if __name__ == "__main__":
                     os.remove(temp_file)
             
             # Run instance with timeout
-            command = f"./runlim -r {TIMEOUT} {sys.executable} incremental_cadical_2.py {instance_id}"
+            command = f"./runlim -r {TIMEOUT} {sys.executable} pb_staircase4_time_NoE.py {instance_id}"
             
             try:
                 process = subprocess.Popen(command, shell=True)
@@ -1486,20 +1362,7 @@ if __name__ == "__main__":
                 if result:
                     print(f"Instance {instance_name} - Status: {result['Status']}")
                     print(f"Optimal Value: {result['OptimalValue']}, Runtime: {result['Runtime']}")
-                    
-                    # Convert JSON to Excel format
-                    if os.path.exists(excel_file):
-                        try:
-                            existing_df = pd.read_excel(excel_file)
-                            result_df = pd.DataFrame([result])
-                            existing_df = pd.concat([existing_df, result_df], ignore_index=True)
-                        except:
-                            existing_df = pd.DataFrame([result])
-                    else:
-                        existing_df = pd.DataFrame([result])
-                    
-                    existing_df.to_excel(excel_file, index=False)
-                    print(f"Results saved to {excel_file}")
+                    print(f"Results saved to {csv_file}")
                 else:
                     print(f"No results found for instance {instance_name}")
                     
@@ -1512,7 +1375,7 @@ if __name__ == "__main__":
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
         
-        print(f"\nAll instances completed. Results saved to {excel_file}")
+        print(f"\nAll instances completed. Results saved to {csv_file}")
     
     # Single instance mode
     else:
